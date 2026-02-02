@@ -7,4 +7,11 @@ plugins {
     alias(libs.plugins.composeMultiplatform) apply false
     alias(libs.plugins.composeCompiler) apply false
     alias(libs.plugins.kotlinMultiplatform) apply false
+    alias(libs.plugins.kotlinSerialization) apply false
+}
+
+// Common configuration for all subprojects
+subprojects {
+    group = "io.github.lugf027.mermaid"
+    version = "0.1.0-SNAPSHOT"
 }

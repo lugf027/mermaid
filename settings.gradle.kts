@@ -32,4 +32,15 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
+// Core library modules
+include(":mermaid-core")
+include(":mermaid")
+
+// Example applications
+include(":example:shared")
+include(":example:androidApp")
+include(":example:desktopApp")
+include(":example:webApp")
+
+// Keep original composeApp for reference (can be removed later)
 include(":composeApp")
