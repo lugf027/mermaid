@@ -12,7 +12,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import io.github.lugf027.mermaid.layout.LayoutConfig
 import io.github.lugf027.mermaid.model.flowchart.FlowchartData
 import io.github.lugf027.mermaid.model.flowchart.FlowEdge
 import io.github.lugf027.mermaid.model.flowchart.FlowSubgraph
@@ -28,6 +30,9 @@ import io.github.lugf027.mermaid.theme.MermaidTheme
  * Render engine for flowchart diagrams.
  */
 public object FlowchartRenderer : RenderEngine<FlowchartData> {
+    
+    // Default layout config for title margins (can be overridden)
+    private val defaultLayoutConfig = LayoutConfig()
 
     override fun DrawScope.render(data: FlowchartData, theme: MermaidTheme) {
         // Draw background
@@ -53,7 +58,8 @@ public object FlowchartRenderer : RenderEngine<FlowchartData> {
     public fun DrawScope.renderWithTextMeasurer(
         data: FlowchartData,
         theme: MermaidTheme,
-        textMeasurer: TextMeasurer
+        textMeasurer: TextMeasurer,
+        layoutConfig: LayoutConfig = defaultLayoutConfig
     ) {
         // Draw background
         drawRect(
@@ -63,7 +69,7 @@ public object FlowchartRenderer : RenderEngine<FlowchartData> {
         )
 
         // Draw subgraphs (back to front)
-        drawSubgraphsWithText(data, theme, textMeasurer)
+        drawSubgraphsWithText(data, theme, textMeasurer, layoutConfig)
 
         // Draw edges
         drawEdgesWithLabels(data, theme, textMeasurer)
@@ -115,10 +121,11 @@ public object FlowchartRenderer : RenderEngine<FlowchartData> {
     private fun DrawScope.drawSubgraphsWithText(
         data: FlowchartData,
         theme: MermaidTheme,
-        textMeasurer: TextMeasurer
+        textMeasurer: TextMeasurer,
+        layoutConfig: LayoutConfig
     ) {
         for (subgraphId in data.rootSubgraphIds) {
-            drawSubgraphWithTextRecursive(data, subgraphId, theme, textMeasurer)
+            drawSubgraphWithTextRecursive(data, subgraphId, theme, textMeasurer, layoutConfig)
         }
     }
 
@@ -126,7 +133,8 @@ public object FlowchartRenderer : RenderEngine<FlowchartData> {
         data: FlowchartData,
         subgraphId: String,
         theme: MermaidTheme,
-        textMeasurer: TextMeasurer
+        textMeasurer: TextMeasurer,
+        layoutConfig: LayoutConfig
     ) {
         val subgraph = data.subgraphs[subgraphId] ?: return
         val bounds = subgraph.bounds
@@ -149,29 +157,32 @@ public object FlowchartRenderer : RenderEngine<FlowchartData> {
                 style = Stroke(width = theme.nodeStrokeWidth)
             )
 
-            // Draw title
+            // Draw title with proper margins
             subgraph.title?.let { title ->
                 val textLayoutResult = textMeasurer.measure(
                     text = title,
                     style = TextStyle(
                         fontSize = theme.fontSize.sp,
+                        fontWeight = FontWeight.Medium,
                         color = theme.textColor
                     )
                 )
                 
+                // Position title using configured margins
+                // Title is positioned at top-left of subgraph with proper margins
+                val titleX = bounds.x + layoutConfig.subgraphPadding
+                val titleY = bounds.y + layoutConfig.subgraphTitleTopMargin
+                
                 drawText(
                     textLayoutResult = textLayoutResult,
-                    topLeft = Offset(
-                        bounds.x + 8f,
-                        bounds.y + 4f
-                    )
+                    topLeft = Offset(titleX, titleY)
                 )
             }
         }
 
         // Draw nested subgraphs
         for (nestedId in subgraph.subgraphIds) {
-            drawSubgraphWithTextRecursive(data, nestedId, theme, textMeasurer)
+            drawSubgraphWithTextRecursive(data, nestedId, theme, textMeasurer, layoutConfig)
         }
     }
 

@@ -307,9 +307,14 @@ public object EdgeShapes {
      * Calculate a smooth bezier curve through control points.
      * Uses cubic bezier curves for 3+ points, quadratic for simpler cases.
      */
-    public fun calculateSmoothBezierPath(points: List<Point>): Path {
+    public fun calculateSmoothBezierPath(points: List<Point>, cornerRadius: Float = 8f): Path {
         val path = Path()
         if (points.isEmpty()) return path
+
+        // For orthogonal paths (paths with right angles), use rounded corners
+        if (hasOrthogonalSegments(points)) {
+            return generateRoundedPath(points, cornerRadius)
+        }
 
         path.moveTo(points[0].x, points[0].y)
 
@@ -354,6 +359,121 @@ public object EdgeShapes {
             }
         }
 
+        return path
+    }
+    
+    /**
+     * Check if the path has orthogonal (right angle) segments.
+     * This is typical for back edges and routed paths.
+     */
+    private fun hasOrthogonalSegments(points: List<Point>): Boolean {
+        if (points.size < 3) return false
+        
+        for (i in 1 until points.size - 1) {
+            val prev = points[i - 1]
+            val curr = points[i]
+            val next = points[i + 1]
+            
+            // Check if this is a corner (approximately 90 degrees)
+            val dx1 = curr.x - prev.x
+            val dy1 = curr.y - prev.y
+            val dx2 = next.x - curr.x
+            val dy2 = next.y - curr.y
+            
+            // Orthogonal if one segment is mostly horizontal and the other is mostly vertical
+            val isHorizontal1 = kotlin.math.abs(dy1) < kotlin.math.abs(dx1) * 0.1f
+            val isVertical1 = kotlin.math.abs(dx1) < kotlin.math.abs(dy1) * 0.1f
+            val isHorizontal2 = kotlin.math.abs(dy2) < kotlin.math.abs(dx2) * 0.1f
+            val isVertical2 = kotlin.math.abs(dx2) < kotlin.math.abs(dy2) * 0.1f
+            
+            if ((isHorizontal1 && isVertical2) || (isVertical1 && isHorizontal2)) {
+                return true
+            }
+        }
+        
+        return false
+    }
+    
+    /**
+     * Generate a path with rounded corners at each turn.
+     * Based on mermaid-js generateRoundedPath function.
+     * 
+     * @param points Array of points defining the path
+     * @param radius Corner radius for the rounded corners
+     * @return Path with rounded corners using quadratic bezier curves
+     */
+    public fun generateRoundedPath(points: List<Point>, radius: Float = 8f): Path {
+        val path = Path()
+        if (points.isEmpty()) return path
+        if (points.size == 1) {
+            path.moveTo(points[0].x, points[0].y)
+            return path
+        }
+        if (points.size == 2) {
+            path.moveTo(points[0].x, points[0].y)
+            path.lineTo(points[1].x, points[1].y)
+            return path
+        }
+        
+        path.moveTo(points[0].x, points[0].y)
+        
+        for (i in 1 until points.size - 1) {
+            val prev = points[i - 1]
+            val curr = points[i]
+            val next = points[i + 1]
+            
+            // Calculate vectors from current point to neighbors
+            val dx1 = curr.x - prev.x
+            val dy1 = curr.y - prev.y
+            val dx2 = next.x - curr.x
+            val dy2 = next.y - curr.y
+            
+            // Calculate lengths
+            val len1 = sqrt((dx1 * dx1 + dy1 * dy1).toDouble()).toFloat()
+            val len2 = sqrt((dx2 * dx2 + dy2 * dy2).toDouble()).toFloat()
+            
+            if (len1 == 0f || len2 == 0f) {
+                path.lineTo(curr.x, curr.y)
+                continue
+            }
+            
+            // Calculate the angle between the two segments
+            val dotProduct = dx1 * dx2 + dy1 * dy2
+            val crossProduct = dx1 * dy2 - dy1 * dx2
+            val angle = kotlin.math.abs(atan2(crossProduct.toDouble(), dotProduct.toDouble())).toFloat()
+            
+            // If the angle is very small (nearly straight), just draw a line
+            if (angle < 0.1f) {
+                path.lineTo(curr.x, curr.y)
+                continue
+            }
+            
+            // Calculate the cut length for the corner
+            // The cut length is limited by the available segment length and the desired radius
+            val halfAngle = angle / 2
+            val tanHalfAngle = kotlin.math.tan(halfAngle.toDouble()).toFloat()
+            val idealCutLen = if (tanHalfAngle != 0f) radius / tanHalfAngle else radius
+            val cutLen = minOf(idealCutLen, len1 / 2, len2 / 2)
+            
+            // Calculate the start point of the curve (on the incoming segment)
+            val startX = curr.x - (dx1 / len1) * cutLen
+            val startY = curr.y - (dy1 / len1) * cutLen
+            
+            // Calculate the end point of the curve (on the outgoing segment)
+            val endX = curr.x + (dx2 / len2) * cutLen
+            val endY = curr.y + (dy2 / len2) * cutLen
+            
+            // Draw line to the start of the curve
+            path.lineTo(startX, startY)
+            
+            // Draw the rounded corner using a quadratic bezier curve
+            // The control point is the original corner point
+            path.quadraticBezierTo(curr.x, curr.y, endX, endY)
+        }
+        
+        // Draw line to the last point
+        path.lineTo(points.last().x, points.last().y)
+        
         return path
     }
 

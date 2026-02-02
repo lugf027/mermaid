@@ -44,6 +44,70 @@ internal class FlowchartLayouter(
     // Adjacency lists
     private val outEdges = mutableMapOf<String, MutableList<String>>()
     private val inEdges = mutableMapOf<String, MutableList<String>>()
+    
+    /**
+     * Connection direction for edge port allocation.
+     */
+    private enum class ConnectionDirection {
+        TOP, BOTTOM, LEFT, RIGHT
+    }
+    
+    /**
+     * Port allocator for assigning different connection points to multiple edges on the same node.
+     * This prevents edges from overlapping at the same connection point.
+     */
+    private class EdgePortAllocator {
+        // nodeId -> direction -> list of edge indices connecting in that direction
+        private val nodePortAssignments = mutableMapOf<String, MutableMap<ConnectionDirection, MutableList<Int>>>()
+        
+        /**
+         * Register an edge connection at a specific node and direction.
+         * @return the port index for this edge (0-based)
+         */
+        fun registerPort(nodeId: String, direction: ConnectionDirection, edgeIndex: Int): Int {
+            val directionPorts = nodePortAssignments
+                .getOrPut(nodeId) { mutableMapOf() }
+                .getOrPut(direction) { mutableListOf() }
+            val portIndex = directionPorts.size
+            directionPorts.add(edgeIndex)
+            return portIndex
+        }
+        
+        /**
+         * Get the total number of ports used in a specific direction for a node.
+         */
+        fun getPortCount(nodeId: String, direction: ConnectionDirection): Int {
+            return nodePortAssignments[nodeId]?.get(direction)?.size ?: 0
+        }
+        
+        /**
+         * Calculate the offset for a specific port on a node's edge.
+         * @param nodeId the node ID
+         * @param direction the connection direction
+         * @param portIndex the port index (0-based)
+         * @param edgeLength the length of the edge where ports are distributed
+         * @return the offset from the center of the edge (-edgeLength/2 to +edgeLength/2)
+         */
+        fun calculatePortOffset(
+            nodeId: String, 
+            direction: ConnectionDirection, 
+            portIndex: Int,
+            edgeLength: Float
+        ): Float {
+            val portCount = getPortCount(nodeId, direction)
+            if (portCount <= 1) return 0f
+            
+            // Distribute ports evenly along the edge, with some margin at the ends
+            val usableLength = edgeLength * 0.7f  // Use 70% of the edge to leave margins
+            val spacing = usableLength / (portCount - 1)
+            val startOffset = -usableLength / 2
+            
+            return startOffset + portIndex * spacing
+        }
+    }
+    
+    // Port allocator instance for managing edge connections
+    private val portAllocator = EdgePortAllocator()
 
     fun layout(): FlowchartData {
         if (data.vertices.isEmpty()) {
@@ -64,17 +128,149 @@ internal class FlowchartLayouter(
 
         // Step 5: Calculate positions
         calculatePositions()
+        
+        // Step 5.5: Apply subgraph title offset to nodes inside subgraphs
+        applySubgraphTitleOffset()
+        
+        // Step 5.6: Align single-child nodes with their parents
+        alignSingleChildNodes()
 
         // Step 6: Route edges
         routeEdges()
 
-        // Step 7: Layout subgraphs
+        // Step 7: Layout subgraphs (calculate bounds including title)
         layoutSubgraphs()
 
         // Step 8: Calculate overall bounds
         calculateBounds()
 
         return data
+    }
+    
+    /**
+     * Apply vertical offset to nodes inside subgraphs to make room for the subgraph title.
+     * This ensures that nodes don't overlap with the subgraph title text.
+     */
+    private fun applySubgraphTitleOffset() {
+        val isHorizontal = data.direction.isHorizontal
+        
+        // Calculate the total title offset (top margin + title height + bottom margin)
+        val titleOffset = config.subgraphTitleTopMargin + config.subgraphTitleHeight + config.subgraphTitleBottomMargin
+        
+        // Process each subgraph and offset its contained nodes
+        for (subgraph in data.subgraphs.values) {
+            // Skip subgraphs without titles
+            if (subgraph.title.isNullOrEmpty()) continue
+            
+            // Offset all vertices in this subgraph
+            for (vertexId in subgraph.vertexIds) {
+                val vertex = data.vertices[vertexId] ?: continue
+                
+                // Apply offset based on layout direction
+                if (isHorizontal) {
+                    // For horizontal layout (LR/RL), offset in X direction
+                    vertex.bounds = vertex.bounds.copy(x = vertex.bounds.x + titleOffset)
+                } else {
+                    // For vertical layout (TB/BT), offset in Y direction (down)
+                    vertex.bounds = vertex.bounds.copy(y = vertex.bounds.y + titleOffset)
+                }
+            }
+            
+            // Also offset nested subgraph bounds (they will be recalculated later, but we need to offset their nodes too)
+            for (nestedSubgraphId in subgraph.subgraphIds) {
+                val nestedSubgraph = data.subgraphs[nestedSubgraphId] ?: continue
+                for (vertexId in nestedSubgraph.vertexIds) {
+                    val vertex = data.vertices[vertexId] ?: continue
+                    
+                    if (isHorizontal) {
+                        vertex.bounds = vertex.bounds.copy(x = vertex.bounds.x + titleOffset)
+                    } else {
+                        vertex.bounds = vertex.bounds.copy(y = vertex.bounds.y + titleOffset)
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Align nodes that have a single parent to be directly below/beside their parent.
+     * This improves visual alignment for chains like C -> E where E should be under C.
+     */
+    private fun alignSingleChildNodes() {
+        val isHorizontal = data.direction.isHorizontal
+        
+        // Find nodes with single parent (single incoming non-back edge)
+        for (vertex in data.vertices.values) {
+            val nonBackInEdges = (inEdges[vertex.id] ?: emptyList()).filter { sourceId ->
+                !backEdges.contains(sourceId to vertex.id)
+            }
+            
+            // Only process nodes with exactly one parent
+            if (nonBackInEdges.size != 1) continue
+            
+            val parentId = nonBackInEdges.first()
+            val parent = data.vertices[parentId] ?: continue
+            
+            // Check if parent is in the previous rank
+            val parentRank = nodeRanks[parentId] ?: continue
+            val vertexRank = nodeRanks[vertex.id] ?: continue
+            
+            // Only align if parent is exactly one rank above
+            if (vertexRank != parentRank + 1) continue
+            
+            // Check if this node has siblings (other children of the same parent)
+            val siblings = (outEdges[parentId] ?: emptyList()).filter { targetId ->
+                !backEdges.contains(parentId to targetId) && 
+                nodeRanks[targetId] == vertexRank
+            }
+            
+            // Only align if this is the only child in this rank from this parent
+            // or if there's only one sibling and we're already close to alignment
+            if (siblings.size > 1) continue
+            
+            // Align this node with its parent
+            val newBounds = if (isHorizontal) {
+                // For horizontal layout, align Y coordinate
+                vertex.bounds.copy(y = parent.bounds.y + (parent.bounds.height - vertex.bounds.height) / 2)
+            } else {
+                // For vertical layout, align X coordinate (center under parent)
+                vertex.bounds.copy(x = parent.bounds.x + (parent.bounds.width - vertex.bounds.width) / 2)
+            }
+            
+            // Check for collision with other nodes in the same rank
+            val rankNodes = rankNodes[vertexRank] ?: continue
+            var hasCollision = false
+            
+            for (otherNodeId in rankNodes) {
+                if (otherNodeId == vertex.id) continue
+                val otherNode = data.vertices[otherNodeId] ?: continue
+                
+                // Check for overlap
+                val overlap = if (isHorizontal) {
+                    val otherTop = otherNode.bounds.y
+                    val otherBottom = otherNode.bounds.bottom
+                    val newTop = newBounds.y
+                    val newBottom = newBounds.bottom
+                    !(newBottom < otherTop - config.nodeSpacingY || newTop > otherBottom + config.nodeSpacingY)
+                } else {
+                    val otherLeft = otherNode.bounds.x
+                    val otherRight = otherNode.bounds.right
+                    val newLeft = newBounds.x
+                    val newRight = newBounds.right
+                    !(newRight < otherLeft - config.nodeSpacingX || newLeft > otherRight + config.nodeSpacingX)
+                }
+                
+                if (overlap) {
+                    hasCollision = true
+                    break
+                }
+            }
+            
+            // Only apply alignment if there's no collision
+            if (!hasCollision) {
+                vertex.bounds = newBounds
+            }
+        }
     }
 
     private fun buildGraph() {
@@ -282,8 +478,13 @@ internal class FlowchartLayouter(
                     size to size
                 }
                 NodeShape.DIAMOND -> {
-                    // Diamond needs more space
-                    (textSize.width * 1.5f) to (textSize.height * 1.5f)
+                    // Diamond: text is placed in the inscribed rectangle of the diamond
+                    // For a diamond (rotated square), to fit text of width w and height h,
+                    // the diamond's diagonal needs to be at least w + h
+                    // Reference: mermaid-js question.ts uses s = w + h + padding
+                    val padding = config.textPadding
+                    val size = textSize.width + textSize.height + padding * 2
+                    size to size
                 }
                 NodeShape.HEXAGON -> {
                     (textSize.width * 1.3f) to textSize.height
@@ -336,14 +537,15 @@ internal class FlowchartLayouter(
         val maxCrossSize = rankCrossSize.values.maxOrNull() ?: 0f
         
         // Calculate rank positions along the main axis
+        // Use rankSpacing for distance between different ranks (layers)
         val rankPositions = mutableMapOf<Int, Float>()
         var mainPosition = config.diagramPadding
-        val mainSpacing = if (isHorizontal) config.nodeSpacingX else config.nodeSpacingY
         
         for (rank in ranks) {
             rankPositions[rank] = mainPosition
             val size = rankSizes[rank] ?: 0f
-            mainPosition += size + mainSpacing
+            // Use rankSpacing for distance between different ranks
+            mainPosition += size + config.rankSpacing
         }
         
         // Position nodes within each rank
@@ -384,23 +586,104 @@ internal class FlowchartLayouter(
     }
 
     private fun routeEdges() {
-        for (edge in data.edges) {
+        // First pass: allocate ports for all edges
+        allocateEdgePorts()
+        
+        // Second pass: calculate edge points using allocated ports
+        for ((edgeIndex, edge) in data.edges.withIndex()) {
             val sourceVertex = data.vertices[edge.sourceId] ?: continue
             val targetVertex = data.vertices[edge.targetId] ?: continue
             
             // Check if this is a back edge (cycle edge)
             val isBackEdge = backEdges.contains(edge.sourceId to edge.targetId)
             
-            // Calculate edge points with proper routing
-            val points = calculateEdgePoints(sourceVertex, targetVertex, isBackEdge)
+            // Calculate edge points with proper routing and port allocation
+            val points = calculateEdgePoints(sourceVertex, targetVertex, isBackEdge, edgeIndex)
             edge.points = points
+        }
+    }
+    
+    /**
+     * Allocate ports for all edges to avoid overlapping connections.
+     */
+    private fun allocateEdgePorts() {
+        val isHorizontal = data.direction.isHorizontal
+        
+        for ((edgeIndex, edge) in data.edges.withIndex()) {
+            val sourceVertex = data.vertices[edge.sourceId] ?: continue
+            val targetVertex = data.vertices[edge.targetId] ?: continue
+            val isBackEdge = backEdges.contains(edge.sourceId to edge.targetId)
+            
+            // Determine connection directions for source and target
+            val (sourceDir, targetDir) = determineConnectionDirections(
+                sourceVertex, targetVertex, isHorizontal, isBackEdge
+            )
+            
+            // Register ports for both source and target
+            portAllocator.registerPort(edge.sourceId, sourceDir, edgeIndex)
+            portAllocator.registerPort(edge.targetId, targetDir, edgeIndex)
+        }
+    }
+    
+    /**
+     * Determine the connection directions for source and target vertices.
+     */
+    private fun determineConnectionDirections(
+        source: FlowVertex,
+        target: FlowVertex,
+        isHorizontal: Boolean,
+        isBackEdge: Boolean
+    ): Pair<ConnectionDirection, ConnectionDirection> {
+        val dx = target.bounds.centerX - source.bounds.centerX
+        val dy = target.bounds.centerY - source.bounds.centerY
+        
+        if (isBackEdge) {
+            // For back edges, route around the nodes
+            return if (isHorizontal) {
+                if (source.bounds.centerY >= target.bounds.centerY) {
+                    ConnectionDirection.TOP to ConnectionDirection.TOP
+                } else {
+                    ConnectionDirection.BOTTOM to ConnectionDirection.BOTTOM
+                }
+            } else {
+                if (source.bounds.centerX >= target.bounds.centerX) {
+                    ConnectionDirection.RIGHT to ConnectionDirection.RIGHT
+                } else {
+                    ConnectionDirection.LEFT to ConnectionDirection.LEFT
+                }
+            }
+        }
+        
+        // Normal edges: determine direction based on relative positions
+        val absDx = kotlin.math.abs(dx)
+        val absDy = kotlin.math.abs(dy)
+        
+        // Bias toward the layout direction
+        val biasedAbsDx = absDx * (if (isHorizontal) 1.5f else 1f)
+        val biasedAbsDy = absDy * (if (!isHorizontal) 1.5f else 1f)
+        
+        return if (biasedAbsDx > biasedAbsDy) {
+            // Horizontal connection
+            if (dx > 0) {
+                ConnectionDirection.RIGHT to ConnectionDirection.LEFT
+            } else {
+                ConnectionDirection.LEFT to ConnectionDirection.RIGHT
+            }
+        } else {
+            // Vertical connection
+            if (dy > 0) {
+                ConnectionDirection.BOTTOM to ConnectionDirection.TOP
+            } else {
+                ConnectionDirection.TOP to ConnectionDirection.BOTTOM
+            }
         }
     }
 
     private fun calculateEdgePoints(
         source: FlowVertex, 
         target: FlowVertex, 
-        isBackEdge: Boolean
+        isBackEdge: Boolean,
+        edgeIndex: Int
     ): List<Point> {
         val isHorizontal = data.direction.isHorizontal
         
@@ -411,9 +694,30 @@ internal class FlowchartLayouter(
         val dx = targetCenter.x - sourceCenter.x
         val dy = targetCenter.y - sourceCenter.y
         
-        // Calculate connection points based on relative positions
-        val sourcePoint = getConnectionPointByDirection(source, dx, dy, isHorizontal, isSource = true)
-        val targetPoint = getConnectionPointByDirection(target, dx, dy, isHorizontal, isSource = false)
+        // Determine connection directions and get port offsets
+        val (sourceDir, targetDir) = determineConnectionDirections(source, target, isHorizontal, isBackEdge)
+        
+        // Calculate the edge length for port distribution
+        val sourceEdgeLength = when (sourceDir) {
+            ConnectionDirection.TOP, ConnectionDirection.BOTTOM -> source.bounds.width
+            ConnectionDirection.LEFT, ConnectionDirection.RIGHT -> source.bounds.height
+        }
+        val targetEdgeLength = when (targetDir) {
+            ConnectionDirection.TOP, ConnectionDirection.BOTTOM -> target.bounds.width
+            ConnectionDirection.LEFT, ConnectionDirection.RIGHT -> target.bounds.height
+        }
+        
+        // Get port indices for this edge
+        val sourcePortIndex = getPortIndex(source.id, sourceDir, edgeIndex)
+        val targetPortIndex = getPortIndex(target.id, targetDir, edgeIndex)
+        
+        // Calculate port offsets
+        val sourcePortOffset = portAllocator.calculatePortOffset(source.id, sourceDir, sourcePortIndex, sourceEdgeLength)
+        val targetPortOffset = portAllocator.calculatePortOffset(target.id, targetDir, targetPortIndex, targetEdgeLength)
+        
+        // Calculate connection points with port offsets
+        val sourcePoint = getConnectionPointWithOffset(source, sourceDir, sourcePortOffset, isBackEdge)
+        val targetPoint = getConnectionPointWithOffset(target, targetDir, targetPortOffset, isBackEdge)
         
         // For back edges or same-rank edges, add control points to create a curved path
         if (isBackEdge) {
@@ -439,8 +743,110 @@ internal class FlowchartLayouter(
     }
     
     /**
+     * Get the port index for a specific edge at a node's direction.
+     */
+    private fun getPortIndex(nodeId: String, direction: ConnectionDirection, edgeIndex: Int): Int {
+        // Find the port index by looking up the registration order
+        // Since we registered ports in order, we need to find which index this edge got
+        var portIndex = 0
+        for ((idx, edge) in data.edges.withIndex()) {
+            if (idx == edgeIndex) break
+            val vertex = data.vertices[nodeId] ?: continue
+            val otherVertex = if (edge.sourceId == nodeId) {
+                data.vertices[edge.targetId]
+            } else if (edge.targetId == nodeId) {
+                data.vertices[edge.sourceId]
+            } else {
+                continue
+            } ?: continue
+            
+            val isBackEdge = backEdges.contains(edge.sourceId to edge.targetId)
+            val (srcDir, tgtDir) = determineConnectionDirections(
+                data.vertices[edge.sourceId] ?: continue,
+                data.vertices[edge.targetId] ?: continue,
+                data.direction.isHorizontal,
+                isBackEdge
+            )
+            
+            val dir = if (edge.sourceId == nodeId) srcDir else tgtDir
+            if (dir == direction) {
+                portIndex++
+            }
+        }
+        return portIndex
+    }
+    
+    /**
+     * Calculate connection point with port offset.
+     */
+    private fun getConnectionPointWithOffset(
+        vertex: FlowVertex,
+        direction: ConnectionDirection,
+        portOffset: Float,
+        isBackEdge: Boolean
+    ): Point {
+        val bounds = vertex.bounds
+        val cx = bounds.centerX
+        val cy = bounds.centerY
+        
+        // For diamond shape, calculate the connection point on the diamond edge
+        if (vertex.shape == NodeShape.DIAMOND) {
+            return getDiamondConnectionPointWithOffset(bounds, direction, portOffset, isBackEdge)
+        }
+        
+        // For other shapes, use rectangle-based connection points
+        return when (direction) {
+            ConnectionDirection.TOP -> Point(cx + portOffset, bounds.y)
+            ConnectionDirection.BOTTOM -> Point(cx + portOffset, bounds.bottom)
+            ConnectionDirection.LEFT -> Point(bounds.x, cy + portOffset)
+            ConnectionDirection.RIGHT -> Point(bounds.right, cy + portOffset)
+        }
+    }
+    
+    /**
+     * Calculate diamond connection point with port offset.
+     */
+    private fun getDiamondConnectionPointWithOffset(
+        bounds: Bounds,
+        direction: ConnectionDirection,
+        portOffset: Float,
+        isBackEdge: Boolean
+    ): Point {
+        val cx = bounds.centerX
+        val cy = bounds.centerY
+        val halfW = bounds.width / 2
+        val halfH = bounds.height / 2
+        
+        // For diamond, the connection point is at the diamond's vertices or edges
+        // With port offset, we move along the edge
+        return when (direction) {
+            ConnectionDirection.TOP -> {
+                // Top vertex of diamond, offset moves along the top-left or top-right edge
+                val offsetRatio = portOffset / (halfW * 0.7f)  // Normalize offset
+                Point(cx + offsetRatio * halfW * 0.3f, cy - halfH + kotlin.math.abs(offsetRatio) * halfH * 0.2f)
+            }
+            ConnectionDirection.BOTTOM -> {
+                // Bottom vertex of diamond
+                val offsetRatio = portOffset / (halfW * 0.7f)
+                Point(cx + offsetRatio * halfW * 0.3f, cy + halfH - kotlin.math.abs(offsetRatio) * halfH * 0.2f)
+            }
+            ConnectionDirection.LEFT -> {
+                // Left vertex of diamond
+                val offsetRatio = portOffset / (halfH * 0.7f)
+                Point(cx - halfW + kotlin.math.abs(offsetRatio) * halfW * 0.2f, cy + offsetRatio * halfH * 0.3f)
+            }
+            ConnectionDirection.RIGHT -> {
+                // Right vertex of diamond
+                val offsetRatio = portOffset / (halfH * 0.7f)
+                Point(cx + halfW - kotlin.math.abs(offsetRatio) * halfW * 0.2f, cy + offsetRatio * halfH * 0.3f)
+            }
+        }
+    }
+    
+    /**
      * Create a path for back edges (edges that go against the flow direction).
      * Uses a curved path that goes around to avoid crossing other nodes.
+     * Optimized to provide adequate spacing for arrow heads and avoid overlap.
      */
     private fun createBackEdgePath(
         sourcePoint: Point,
@@ -449,36 +855,110 @@ internal class FlowchartLayouter(
         target: FlowVertex,
         isHorizontal: Boolean
     ): List<Point> {
-        val offset = config.nodeSpacingX.coerceAtLeast(config.nodeSpacingY) * 0.6f
+        // Increased offset factor from 0.6 to 0.8 for better spacing
+        val baseOffset = config.nodeSpacingX.coerceAtLeast(config.nodeSpacingY) * 0.8f
+        // Additional margin for arrow head (considering ARROW_SIZE = 10f in EdgeShapes)
+        val arrowMargin = 15f
         
         return if (isHorizontal) {
             // For horizontal layout, route the back edge above or below
             val routeAbove = sourcePoint.y >= targetPoint.y
-            val routeY = if (routeAbove) {
-                minOf(source.bounds.y, target.bounds.y) - offset
-            } else {
-                maxOf(source.bounds.bottom, target.bounds.bottom) + offset
+            
+            // Find all nodes that might be in the path between source and target
+            val minX = minOf(source.bounds.x, target.bounds.x)
+            val maxX = maxOf(source.bounds.right, target.bounds.right)
+            val nodesInPath = data.vertices.values.filter { vertex ->
+                vertex.id != source.id && vertex.id != target.id &&
+                vertex.bounds.right >= minX && vertex.bounds.x <= maxX
             }
+            
+            // Calculate route position that clears all nodes in the path
+            val routeY = if (routeAbove) {
+                val minY = nodesInPath.minOfOrNull { it.bounds.y } ?: source.bounds.y
+                minOf(minY, source.bounds.y, target.bounds.y) - baseOffset
+            } else {
+                val maxY = nodesInPath.maxOfOrNull { it.bounds.bottom } ?: source.bounds.bottom
+                maxOf(maxY, source.bounds.bottom, target.bounds.bottom) + baseOffset
+            }
+            
+            // Add extra control points for smoother curve and better arrow positioning
+            // Adjust source and target connection points to include arrow margin
+            val adjustedSourcePoint = Point(
+                sourcePoint.x,
+                if (routeAbove) sourcePoint.y - arrowMargin else sourcePoint.y + arrowMargin
+            )
+            val adjustedTargetPoint = Point(
+                targetPoint.x,
+                if (routeAbove) targetPoint.y - arrowMargin else targetPoint.y + arrowMargin
+            )
             
             listOf(
                 sourcePoint,
-                Point(sourcePoint.x, routeY),
-                Point(targetPoint.x, routeY),
+                adjustedSourcePoint,
+                Point(adjustedSourcePoint.x, routeY),
+                Point(adjustedTargetPoint.x, routeY),
+                adjustedTargetPoint,
                 targetPoint
             )
         } else {
-            // For vertical layout, route the back edge to the left or right
-            val routeRight = sourcePoint.x >= targetPoint.x
-            val routeX = if (routeRight) {
-                maxOf(source.bounds.right, target.bounds.right) + offset
-            } else {
-                minOf(source.bounds.x, target.bounds.x) - offset
+            // For vertical layout (TB/BT), route the back edge to the left or right
+            // Determine which side to route based on source position relative to target
+            val sourceIsRight = source.bounds.centerX > target.bounds.centerX
+            
+            // Find all nodes that might be in the path between source and target vertically
+            // For back edges, we want to route around ALL nodes between source and target ranks
+            val sourceRank = nodeRanks[source.id] ?: 0
+            val targetRank = nodeRanks[target.id] ?: 0
+            val minRank = minOf(sourceRank, targetRank)
+            val maxRank = maxOf(sourceRank, targetRank)
+            
+            // Get all nodes in ranks between source and target (inclusive)
+            val nodesInPath = mutableListOf<FlowVertex>()
+            for (rank in minRank..maxRank) {
+                val nodesInRank = rankNodes[rank] ?: emptyList()
+                for (nodeId in nodesInRank) {
+                    val vertex = data.vertices[nodeId]
+                    if (vertex != null && vertex.id != source.id && vertex.id != target.id) {
+                        nodesInPath.add(vertex)
+                    }
+                }
             }
+            
+            // Calculate route position that clears all nodes
+            val routeX = if (sourceIsRight) {
+                // Source is on the right side, route on the right (further right)
+                val maxX = if (nodesInPath.isNotEmpty()) {
+                    nodesInPath.maxOf { it.bounds.right }
+                } else {
+                    maxOf(source.bounds.right, target.bounds.right)
+                }
+                maxOf(maxX, source.bounds.right, target.bounds.right) + baseOffset
+            } else {
+                // Source is on the left side, route on the left (further left)
+                val minX = if (nodesInPath.isNotEmpty()) {
+                    nodesInPath.minOf { it.bounds.x }
+                } else {
+                    minOf(source.bounds.x, target.bounds.x)
+                }
+                minOf(minX, source.bounds.x, target.bounds.x) - baseOffset
+            }
+            
+            // Add extra control points for smoother curve and better arrow positioning
+            val adjustedSourcePoint = Point(
+                if (sourceIsRight) sourcePoint.x + arrowMargin else sourcePoint.x - arrowMargin,
+                sourcePoint.y
+            )
+            val adjustedTargetPoint = Point(
+                if (sourceIsRight) targetPoint.x + arrowMargin else targetPoint.x - arrowMargin,
+                targetPoint.y
+            )
             
             listOf(
                 sourcePoint,
-                Point(routeX, sourcePoint.y),
-                Point(routeX, targetPoint.y),
+                adjustedSourcePoint,
+                Point(routeX, adjustedSourcePoint.y),
+                Point(routeX, adjustedTargetPoint.y),
+                adjustedTargetPoint,
                 targetPoint
             )
         }
@@ -612,8 +1092,17 @@ internal class FlowchartLayouter(
     }
 
     private fun layoutSubgraphs() {
-        // Calculate bounds for each subgraph
-        for (subgraph in data.subgraphs.values) {
+        val isHorizontal = data.direction.isHorizontal
+        
+        // Calculate the total title space needed
+        val titleSpace = config.subgraphTitleTopMargin + config.subgraphTitleHeight + config.subgraphTitleBottomMargin
+        
+        // Process subgraphs in reverse dependency order (nested first, then parents)
+        // This ensures nested subgraph bounds are calculated before parent subgraphs
+        val processOrder = getSubgraphProcessOrder()
+        
+        for (subgraphId in processOrder) {
+            val subgraph = data.subgraphs[subgraphId] ?: continue
             var bounds = Bounds.EMPTY
             
             // Include all vertices in this subgraph
@@ -623,16 +1112,68 @@ internal class FlowchartLayouter(
             }
             
             // Include nested subgraphs
-            for (subgraphId in subgraph.subgraphIds) {
-                val nested = data.subgraphs[subgraphId] ?: continue
+            for (nestedId in subgraph.subgraphIds) {
+                val nested = data.subgraphs[nestedId] ?: continue
                 bounds = bounds.union(nested.bounds)
             }
             
             // Add padding
             if (bounds.width > 0 && bounds.height > 0) {
-                subgraph.bounds = bounds.expand(config.subgraphPadding)
+                // First expand with padding
+                var expandedBounds = bounds.expand(config.subgraphPadding)
+                
+                // Then add extra space for the title at the top (or left for horizontal layout)
+                if (!subgraph.title.isNullOrEmpty()) {
+                    if (isHorizontal) {
+                        // For horizontal layout, title is at the left
+                        // We already offset nodes, so just ensure minimum width includes title space
+                        val minWidth = expandedBounds.width + titleSpace
+                        if (expandedBounds.width < minWidth) {
+                            expandedBounds = expandedBounds.copy(width = minWidth)
+                        }
+                    } else {
+                        // For vertical layout, title is at the top
+                        // We already offset nodes, so the bounds should naturally include the title space
+                        // Add a bit more top padding to ensure title fits
+                        expandedBounds = expandedBounds.copy(
+                            y = expandedBounds.y - titleSpace,
+                            height = expandedBounds.height + titleSpace
+                        )
+                    }
+                }
+                
+                subgraph.bounds = expandedBounds
             }
         }
+    }
+    
+    /**
+     * Get the order to process subgraphs (nested first, then parents).
+     */
+    private fun getSubgraphProcessOrder(): List<String> {
+        val result = mutableListOf<String>()
+        val visited = mutableSetOf<String>()
+        
+        fun visit(subgraphId: String) {
+            if (subgraphId in visited) return
+            
+            val subgraph = data.subgraphs[subgraphId] ?: return
+            
+            // Visit nested subgraphs first
+            for (nestedId in subgraph.subgraphIds) {
+                visit(nestedId)
+            }
+            
+            visited.add(subgraphId)
+            result.add(subgraphId)
+        }
+        
+        // Start from root subgraphs
+        for (rootId in data.rootSubgraphIds) {
+            visit(rootId)
+        }
+        
+        return result
     }
 
     private fun calculateBounds() {
