@@ -20,6 +20,8 @@ kotlin {
                 implementation(project(":example:shared"))
                 implementation(libs.compose.uiToolingPreview)
                 implementation(libs.androidx.activity.compose)
+                implementation(libs.compose.material3)
+                implementation(libs.compose.foundation)
             }
         }
     }
