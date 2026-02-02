@@ -91,83 +91,184 @@ internal class FlowchartLayouter(
         }
     }
 
-    private fun assignRanks() {
-        // Use topological sort to assign ranks
-        val visited = mutableSetOf<String>()
-        val inDegree = mutableMapOf<String, Int>()
-        
-        // Calculate in-degrees
-        for (nodeId in data.vertices.keys) {
-            inDegree[nodeId] = inEdges[nodeId]?.size ?: 0
-        }
+    // Set to track back edges (edges that point to an ancestor in DFS tree)
+    private val backEdges = mutableSetOf<Pair<String, String>>()
 
-        // Find nodes with no incoming edges (sources)
-        val queue = ArrayDeque<String>()
+    private fun assignRanks() {
+        // Use Longest Path algorithm with back edge detection
+        // This handles cycles correctly by identifying and ignoring back edges
+        
+        // Step 1: Detect back edges using DFS
+        detectBackEdges()
+        
+        // Step 2: Build a DAG by ignoring back edges, then use longest path algorithm
+        // Initialize all nodes with rank -1 (unvisited)
         for (nodeId in data.vertices.keys) {
-            if ((inDegree[nodeId] ?: 0) == 0) {
-                queue.add(nodeId)
-                nodeRanks[nodeId] = 0
+            nodeRanks[nodeId] = -1
+        }
+        
+        // Find source nodes (nodes with no incoming non-back edges)
+        val sources = mutableListOf<String>()
+        for (nodeId in data.vertices.keys) {
+            val nonBackInEdges = (inEdges[nodeId] ?: emptyList()).filter { sourceId ->
+                !backEdges.contains(sourceId to nodeId)
+            }
+            if (nonBackInEdges.isEmpty()) {
+                sources.add(nodeId)
             }
         }
-
-        // Process queue
+        
+        // If no sources found (all nodes are in cycles), pick the first node
+        if (sources.isEmpty() && data.vertices.isNotEmpty()) {
+            sources.add(data.vertices.keys.first())
+        }
+        
+        // Step 3: Use BFS-based longest path from sources
+        // Process nodes in topological order (ignoring back edges)
+        val inDegreeMap = mutableMapOf<String, Int>()
+        for (nodeId in data.vertices.keys) {
+            val nonBackInEdges = (inEdges[nodeId] ?: emptyList()).filter { sourceId ->
+                !backEdges.contains(sourceId to nodeId)
+            }
+            inDegreeMap[nodeId] = nonBackInEdges.size
+        }
+        
+        val queue = ArrayDeque<String>()
+        for (source in sources) {
+            nodeRanks[source] = 0
+            queue.add(source)
+        }
+        
         while (queue.isNotEmpty()) {
             val nodeId = queue.removeFirst()
-            val rank = nodeRanks[nodeId] ?: 0
+            val currentRank = nodeRanks[nodeId] ?: 0
             
             for (targetId in outEdges[nodeId] ?: emptyList()) {
-                val newRank = rank + 1
-                val currentRank = nodeRanks[targetId]
+                // Skip back edges when calculating ranks
+                if (backEdges.contains(nodeId to targetId)) {
+                    continue
+                }
                 
-                if (currentRank == null || newRank > currentRank) {
+                // Update target rank to be at least currentRank + 1 (longest path)
+                val newRank = currentRank + 1
+                if (nodeRanks[targetId] == -1 || newRank > nodeRanks[targetId]!!) {
                     nodeRanks[targetId] = newRank
                 }
                 
-                inDegree[targetId] = (inDegree[targetId] ?: 1) - 1
-                if ((inDegree[targetId] ?: 0) == 0 && targetId !in visited) {
+                // Decrease in-degree and add to queue when all predecessors processed
+                inDegreeMap[targetId] = (inDegreeMap[targetId] ?: 1) - 1
+                if (inDegreeMap[targetId] == 0) {
                     queue.add(targetId)
-                    visited.add(targetId)
                 }
             }
         }
-
-        // Handle any remaining unvisited nodes (disconnected or cycles)
+        
+        // Handle any remaining unvisited nodes (disconnected components)
         for (nodeId in data.vertices.keys) {
-            if (nodeId !in nodeRanks) {
+            if (nodeRanks[nodeId] == -1) {
                 nodeRanks[nodeId] = 0
             }
         }
-
+        
         // Build rank -> nodes mapping
         for ((nodeId, rank) in nodeRanks) {
             rankNodes.getOrPut(rank) { mutableListOf() }.add(nodeId)
         }
     }
-
-    private fun orderNodesInRanks() {
-        // Simple ordering: maintain insertion order for now
-        // A more sophisticated algorithm would minimize edge crossings
+    
+    /**
+     * Detect back edges using DFS.
+     * A back edge is an edge from a node to one of its ancestors in the DFS tree.
+     */
+    private fun detectBackEdges() {
+        val visited = mutableSetOf<String>()
+        val inStack = mutableSetOf<String>()  // Nodes currently in the DFS path
         
-        // For each rank, try to order nodes to reduce crossings
-        val ranks = rankNodes.keys.sorted()
-        
-        for (i in 1 until ranks.size) {
-            val rank = ranks[i]
-            val nodes = rankNodes[rank] ?: continue
-            val prevRankNodes = rankNodes[ranks[i - 1]] ?: continue
+        fun dfs(nodeId: String) {
+            visited.add(nodeId)
+            inStack.add(nodeId)
             
-            // Sort by average position of predecessors
-            nodes.sortBy { nodeId ->
-                val predecessors = inEdges[nodeId] ?: emptyList()
-                if (predecessors.isEmpty()) {
-                    0.0
-                } else {
-                    predecessors.mapNotNull { predId ->
-                        prevRankNodes.indexOf(predId).takeIf { it >= 0 }
-                    }.average().takeIf { !it.isNaN() } ?: 0.0
+            for (targetId in outEdges[nodeId] ?: emptyList()) {
+                if (targetId in inStack) {
+                    // Found a back edge (cycle)
+                    backEdges.add(nodeId to targetId)
+                } else if (targetId !in visited) {
+                    dfs(targetId)
                 }
             }
+            
+            inStack.remove(nodeId)
         }
+        
+        // Run DFS from all unvisited nodes
+        for (nodeId in data.vertices.keys) {
+            if (nodeId !in visited) {
+                dfs(nodeId)
+            }
+        }
+    }
+
+    private fun orderNodesInRanks() {
+        // Use barycenter heuristic to minimize edge crossings
+        // Iterate multiple times for better results
+        val ranks = rankNodes.keys.sorted()
+        val iterations = 4  // Number of iterations (like dagre)
+        
+        for (iteration in 0 until iterations) {
+            // Forward pass (top to bottom)
+            for (i in 1 until ranks.size) {
+                val rank = ranks[i]
+                orderRankByBarycenter(rank, ranks[i - 1], useInEdges = true)
+            }
+            
+            // Backward pass (bottom to top)
+            for (i in (ranks.size - 2) downTo 0) {
+                val rank = ranks[i]
+                orderRankByBarycenter(rank, ranks[i + 1], useInEdges = false)
+            }
+        }
+    }
+    
+    /**
+     * Order nodes in a rank using barycenter heuristic.
+     * The barycenter of a node is the average position of its connected nodes in the reference rank.
+     */
+    private fun orderRankByBarycenter(rank: Int, refRank: Int, useInEdges: Boolean) {
+        val nodes = rankNodes[rank] ?: return
+        val refNodes = rankNodes[refRank] ?: return
+        
+        // Create position map for reference rank
+        val refPositions = refNodes.withIndex().associate { it.value to it.index }
+        
+        // Calculate barycenter for each node
+        val barycenters = mutableMapOf<String, Double>()
+        for (nodeId in nodes) {
+            val connectedNodes = if (useInEdges) {
+                // Get predecessors (nodes pointing to this node)
+                (inEdges[nodeId] ?: emptyList()).filter { sourceId ->
+                    // Only consider edges from the reference rank, excluding back edges
+                    nodeRanks[sourceId] == refRank && !backEdges.contains(sourceId to nodeId)
+                }
+            } else {
+                // Get successors (nodes this node points to)
+                (outEdges[nodeId] ?: emptyList()).filter { targetId ->
+                    // Only consider edges to the reference rank, excluding back edges
+                    nodeRanks[targetId] == refRank && !backEdges.contains(nodeId to targetId)
+                }
+            }
+            
+            if (connectedNodes.isEmpty()) {
+                // No connected nodes in reference rank, keep current relative position
+                barycenters[nodeId] = nodes.indexOf(nodeId).toDouble()
+            } else {
+                // Calculate barycenter as average position of connected nodes
+                val sum = connectedNodes.sumOf { refPositions[it]?.toDouble() ?: 0.0 }
+                barycenters[nodeId] = sum / connectedNodes.size
+            }
+        }
+        
+        // Sort nodes by barycenter
+        nodes.sortBy { barycenters[it] ?: 0.0 }
     }
 
     private fun calculateNodeSizes() {
@@ -201,9 +302,12 @@ internal class FlowchartLayouter(
 
     private fun calculatePositions() {
         val isHorizontal = data.direction.isHorizontal
-        val ranks = rankNodes.keys.sorted()
+        val isReversed = data.direction == Direction.BOTTOM_TO_TOP || 
+                         data.direction == Direction.RIGHT_TO_LEFT
         
-        // Calculate max dimension per rank
+        val ranks = if (isReversed) rankNodes.keys.sortedDescending() else rankNodes.keys.sorted()
+        
+        // Calculate max dimension per rank (in the main direction)
         val rankSizes = mutableMapOf<Int, Float>()
         for (rank in ranks) {
             val nodes = rankNodes[rank] ?: continue
@@ -214,22 +318,45 @@ internal class FlowchartLayouter(
             rankSizes[rank] = maxSize
         }
         
-        // Calculate rank positions
-        val rankPositions = mutableMapOf<Int, Float>()
-        var position = config.diagramPadding
+        // Calculate cross dimension total for each rank (perpendicular to main direction)
+        val rankCrossSize = mutableMapOf<Int, Float>()
         for (rank in ranks) {
-            rankPositions[rank] = position
+            val nodes = rankNodes[rank] ?: continue
+            val crossSpacing = if (isHorizontal) config.nodeSpacingY else config.nodeSpacingX
+            var totalCross = 0f
+            for (nodeId in nodes) {
+                val vertex = data.vertices[nodeId] ?: continue
+                totalCross += if (isHorizontal) vertex.bounds.height else vertex.bounds.width
+            }
+            totalCross += (nodes.size - 1).coerceAtLeast(0) * crossSpacing
+            rankCrossSize[rank] = totalCross
+        }
+        
+        // Find the maximum cross dimension across all ranks (for centering)
+        val maxCrossSize = rankCrossSize.values.maxOrNull() ?: 0f
+        
+        // Calculate rank positions along the main axis
+        val rankPositions = mutableMapOf<Int, Float>()
+        var mainPosition = config.diagramPadding
+        val mainSpacing = if (isHorizontal) config.nodeSpacingX else config.nodeSpacingY
+        
+        for (rank in ranks) {
+            rankPositions[rank] = mainPosition
             val size = rankSizes[rank] ?: 0f
-            position += size + (if (isHorizontal) config.nodeSpacingX else config.nodeSpacingY)
+            mainPosition += size + mainSpacing
         }
         
         // Position nodes within each rank
         for (rank in ranks) {
             val nodes = rankNodes[rank] ?: continue
-            val rankPos = rankPositions[rank] ?: 0f
+            val rankMainPos = rankPositions[rank] ?: 0f
+            val rankMaxSize = rankSizes[rank] ?: 0f
+            val crossSize = rankCrossSize[rank] ?: 0f
             
-            // Calculate total cross dimension
-            var crossPosition = config.diagramPadding
+            // Center this rank's nodes in the cross dimension
+            val crossOffset = config.diagramPadding + (maxCrossSize - crossSize) / 2
+            var crossPosition = crossOffset
+            val crossSpacing = if (isHorizontal) config.nodeSpacingY else config.nodeSpacingX
             
             for (nodeId in nodes) {
                 val vertex = data.vertices[nodeId] ?: continue
@@ -238,55 +365,20 @@ internal class FlowchartLayouter(
                 val y: Float
                 
                 if (isHorizontal) {
-                    // Horizontal layout: ranks are columns
-                    x = rankPos + (rankSizes[rank] ?: 0f) / 2 - vertex.bounds.width / 2
+                    // Horizontal layout (LR/RL): ranks are columns
+                    // Center node within the rank's column
+                    x = rankMainPos + (rankMaxSize - vertex.bounds.width) / 2
                     y = crossPosition
-                    crossPosition += vertex.bounds.height + config.nodeSpacingY
+                    crossPosition += vertex.bounds.height + crossSpacing
                 } else {
-                    // Vertical layout: ranks are rows
+                    // Vertical layout (TB/BT): ranks are rows
+                    // Center node within the rank's row
                     x = crossPosition
-                    y = rankPos + (rankSizes[rank] ?: 0f) / 2 - vertex.bounds.height / 2
-                    crossPosition += vertex.bounds.width + config.nodeSpacingX
+                    y = rankMainPos + (rankMaxSize - vertex.bounds.height) / 2
+                    crossPosition += vertex.bounds.width + crossSpacing
                 }
                 
                 vertex.bounds = vertex.bounds.copy(x = x, y = y)
-            }
-        }
-        
-        // Center nodes within their rank
-        centerNodesInRanks(isHorizontal)
-    }
-
-    private fun centerNodesInRanks(isHorizontal: Boolean) {
-        // Find max cross dimension
-        val maxCross = data.vertices.values.maxOfOrNull { v ->
-            if (isHorizontal) v.bounds.bottom else v.bounds.right
-        } ?: 0f
-        
-        // Center each rank
-        for (rank in rankNodes.keys) {
-            val nodes = rankNodes[rank] ?: continue
-            val currentMax = nodes.maxOfOrNull { nodeId ->
-                val v = data.vertices[nodeId] ?: return@maxOfOrNull 0f
-                if (isHorizontal) v.bounds.bottom else v.bounds.right
-            } ?: continue
-            
-            val currentMin = nodes.minOfOrNull { nodeId ->
-                val v = data.vertices[nodeId] ?: return@minOfOrNull 0f
-                if (isHorizontal) v.bounds.y else v.bounds.x
-            } ?: continue
-            
-            val offset = (maxCross - (currentMax - currentMin + config.diagramPadding * 2)) / 2
-            
-            if (offset > 0) {
-                for (nodeId in nodes) {
-                    val vertex = data.vertices[nodeId] ?: continue
-                    vertex.bounds = if (isHorizontal) {
-                        vertex.bounds.copy(y = vertex.bounds.y + offset)
-                    } else {
-                        vertex.bounds.copy(x = vertex.bounds.x + offset)
-                    }
-                }
             }
         }
     }
@@ -296,23 +388,216 @@ internal class FlowchartLayouter(
             val sourceVertex = data.vertices[edge.sourceId] ?: continue
             val targetVertex = data.vertices[edge.targetId] ?: continue
             
-            // Simple direct edge routing
-            val points = calculateEdgePoints(sourceVertex, targetVertex)
+            // Check if this is a back edge (cycle edge)
+            val isBackEdge = backEdges.contains(edge.sourceId to edge.targetId)
+            
+            // Calculate edge points with proper routing
+            val points = calculateEdgePoints(sourceVertex, targetVertex, isBackEdge)
             edge.points = points
         }
     }
 
-    private fun calculateEdgePoints(source: FlowVertex, target: FlowVertex): List<Point> {
+    private fun calculateEdgePoints(
+        source: FlowVertex, 
+        target: FlowVertex, 
+        isBackEdge: Boolean
+    ): List<Point> {
         val isHorizontal = data.direction.isHorizontal
         
         val sourceCenter = Point(source.bounds.centerX, source.bounds.centerY)
         val targetCenter = Point(target.bounds.centerX, target.bounds.centerY)
         
-        // Calculate connection points on node boundaries
-        val sourcePoint = getConnectionPoint(source, targetCenter, isHorizontal, isSource = true)
-        val targetPoint = getConnectionPoint(target, sourceCenter, isHorizontal, isSource = false)
+        // Determine the direction from source to target
+        val dx = targetCenter.x - sourceCenter.x
+        val dy = targetCenter.y - sourceCenter.y
         
-        return listOf(sourcePoint, targetPoint)
+        // Calculate connection points based on relative positions
+        val sourcePoint = getConnectionPointByDirection(source, dx, dy, isHorizontal, isSource = true)
+        val targetPoint = getConnectionPointByDirection(target, dx, dy, isHorizontal, isSource = false)
+        
+        // For back edges or same-rank edges, add control points to create a curved path
+        if (isBackEdge) {
+            return createBackEdgePath(sourcePoint, targetPoint, source, target, isHorizontal)
+        }
+        
+        // For normal edges spanning multiple ranks, add a middle control point for smooth curves
+        val sourceRank = nodeRanks[source.id] ?: 0
+        val targetRank = nodeRanks[target.id] ?: 0
+        
+        if (kotlin.math.abs(sourceRank - targetRank) > 1 || 
+            (sourceRank == targetRank && source.id != target.id)) {
+            // Same rank or skipping ranks - add control points
+            val midX = (sourcePoint.x + targetPoint.x) / 2
+            val midY = (sourcePoint.y + targetPoint.y) / 2
+            return listOf(sourcePoint, Point(midX, midY), targetPoint)
+        }
+        
+        // Direct connection with one control point for smooth curve
+        val midX = (sourcePoint.x + targetPoint.x) / 2
+        val midY = (sourcePoint.y + targetPoint.y) / 2
+        return listOf(sourcePoint, Point(midX, midY), targetPoint)
+    }
+    
+    /**
+     * Create a path for back edges (edges that go against the flow direction).
+     * Uses a curved path that goes around to avoid crossing other nodes.
+     */
+    private fun createBackEdgePath(
+        sourcePoint: Point,
+        targetPoint: Point,
+        source: FlowVertex,
+        target: FlowVertex,
+        isHorizontal: Boolean
+    ): List<Point> {
+        val offset = config.nodeSpacingX.coerceAtLeast(config.nodeSpacingY) * 0.6f
+        
+        return if (isHorizontal) {
+            // For horizontal layout, route the back edge above or below
+            val routeAbove = sourcePoint.y >= targetPoint.y
+            val routeY = if (routeAbove) {
+                minOf(source.bounds.y, target.bounds.y) - offset
+            } else {
+                maxOf(source.bounds.bottom, target.bounds.bottom) + offset
+            }
+            
+            listOf(
+                sourcePoint,
+                Point(sourcePoint.x, routeY),
+                Point(targetPoint.x, routeY),
+                targetPoint
+            )
+        } else {
+            // For vertical layout, route the back edge to the left or right
+            val routeRight = sourcePoint.x >= targetPoint.x
+            val routeX = if (routeRight) {
+                maxOf(source.bounds.right, target.bounds.right) + offset
+            } else {
+                minOf(source.bounds.x, target.bounds.x) - offset
+            }
+            
+            listOf(
+                sourcePoint,
+                Point(routeX, sourcePoint.y),
+                Point(routeX, targetPoint.y),
+                targetPoint
+            )
+        }
+    }
+    
+    /**
+     * Calculate the connection point on a node based on the direction to the other node.
+     * This provides more accurate edge endpoints than using a fixed direction.
+     */
+    private fun getConnectionPointByDirection(
+        vertex: FlowVertex,
+        dx: Float,
+        dy: Float,
+        isHorizontal: Boolean,
+        isSource: Boolean
+    ): Point {
+        val bounds = vertex.bounds
+        val cx = bounds.centerX
+        val cy = bounds.centerY
+        
+        // Handle special shapes
+        when (vertex.shape) {
+            NodeShape.CIRCLE, NodeShape.DOUBLE_CIRCLE -> {
+                // Calculate intersection with circle
+                val radius = minOf(bounds.width, bounds.height) / 2
+                val dirX = if (isSource) dx else -dx
+                val dirY = if (isSource) dy else -dy
+                val len = kotlin.math.sqrt((dirX * dirX + dirY * dirY).toDouble()).toFloat()
+                if (len > 0) {
+                    return Point(
+                        cx + radius * dirX / len,
+                        cy + radius * dirY / len
+                    )
+                }
+                return Point(cx, cy)
+            }
+            NodeShape.DIAMOND -> {
+                // Diamond: calculate intersection with diamond edges
+                return getDiamondConnectionPoint(bounds, dx, dy, isSource)
+            }
+            else -> {
+                // Rectangle and other shapes: determine which edge to connect to
+                return getRectangleConnectionPoint(bounds, dx, dy, isHorizontal, isSource)
+            }
+        }
+    }
+    
+    /**
+     * Get connection point on a diamond shape.
+     */
+    private fun getDiamondConnectionPoint(
+        bounds: Bounds,
+        dx: Float,
+        dy: Float,
+        isSource: Boolean
+    ): Point {
+        val cx = bounds.centerX
+        val cy = bounds.centerY
+        val halfW = bounds.width / 2
+        val halfH = bounds.height / 2
+        
+        // Determine which edge of the diamond to use based on direction
+        val dirX = if (isSource) dx else -dx
+        val dirY = if (isSource) dy else -dy
+        
+        val absDx = kotlin.math.abs(dirX)
+        val absDy = kotlin.math.abs(dirY)
+        
+        // Normalize to find intersection with diamond
+        val ratioX = if (absDx > 0) halfW / absDx else Float.MAX_VALUE
+        val ratioY = if (absDy > 0) halfH / absDy else Float.MAX_VALUE
+        val ratio = minOf(ratioX, ratioY)
+        
+        return Point(
+            cx + dirX * ratio,
+            cy + dirY * ratio
+        )
+    }
+    
+    /**
+     * Get connection point on a rectangle.
+     * Chooses the edge based on the direction to the other node.
+     */
+    private fun getRectangleConnectionPoint(
+        bounds: Bounds,
+        dx: Float,
+        dy: Float,
+        isHorizontal: Boolean,
+        isSource: Boolean
+    ): Point {
+        val cx = bounds.centerX
+        val cy = bounds.centerY
+        
+        val dirX = if (isSource) dx else -dx
+        val dirY = if (isSource) dy else -dy
+        
+        // Determine which edge to use based on the dominant direction
+        val absDx = kotlin.math.abs(dirX)
+        val absDy = kotlin.math.abs(dirY)
+        
+        // Bias toward the layout direction for cleaner edges
+        val biasedAbsDx = absDx * (if (isHorizontal) 1.5f else 1f)
+        val biasedAbsDy = absDy * (if (!isHorizontal) 1.5f else 1f)
+        
+        return if (biasedAbsDx > biasedAbsDy) {
+            // Connect to left or right edge
+            if (dirX > 0) {
+                Point(bounds.right, cy)
+            } else {
+                Point(bounds.x, cy)
+            }
+        } else {
+            // Connect to top or bottom edge
+            if (dirY > 0) {
+                Point(cx, bounds.bottom)
+            } else {
+                Point(cx, bounds.y)
+            }
+        }
     }
 
     private fun getConnectionPoint(
@@ -321,44 +606,9 @@ internal class FlowchartLayouter(
         isHorizontal: Boolean,
         isSource: Boolean
     ): Point {
-        val bounds = vertex.bounds
-        
-        return when (vertex.shape) {
-            NodeShape.CIRCLE, NodeShape.DOUBLE_CIRCLE -> {
-                // Calculate intersection with circle
-                val cx = bounds.centerX
-                val cy = bounds.centerY
-                val radius = minOf(bounds.width, bounds.height) / 2
-                val angle = kotlin.math.atan2(
-                    (towardPoint.y - cy).toDouble(),
-                    (towardPoint.x - cx).toDouble()
-                )
-                Point(
-                    cx + (radius * kotlin.math.cos(angle)).toFloat(),
-                    cy + (radius * kotlin.math.sin(angle)).toFloat()
-                )
-            }
-            NodeShape.DIAMOND -> {
-                // Simplified: use center of edge
-                if (isHorizontal) {
-                    if (isSource) Point(bounds.right, bounds.centerY)
-                    else Point(bounds.x, bounds.centerY)
-                } else {
-                    if (isSource) Point(bounds.centerX, bounds.bottom)
-                    else Point(bounds.centerX, bounds.y)
-                }
-            }
-            else -> {
-                // Rectangle and other shapes: connect to edge midpoint
-                if (isHorizontal) {
-                    if (isSource) Point(bounds.right, bounds.centerY)
-                    else Point(bounds.x, bounds.centerY)
-                } else {
-                    if (isSource) Point(bounds.centerX, bounds.bottom)
-                    else Point(bounds.centerX, bounds.y)
-                }
-            }
-        }
+        val dx = towardPoint.x - vertex.bounds.centerX
+        val dy = towardPoint.y - vertex.bounds.centerY
+        return getConnectionPointByDirection(vertex, dx, dy, isHorizontal, isSource)
     }
 
     private fun layoutSubgraphs() {

@@ -21,6 +21,7 @@ import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * Utility object for drawing edges and arrows.
@@ -35,7 +36,8 @@ public object EdgeShapes {
      */
     public fun DrawScope.drawEdge(
         edge: FlowEdge,
-        theme: MermaidTheme
+        theme: MermaidTheme,
+        useBezierCurve: Boolean = true
     ) {
         if (edge.points.size < 2) return
 
@@ -50,13 +52,17 @@ public object EdgeShapes {
             else -> null
         }
 
-        // Draw the line
-        drawEdgeLine(edge.points, theme.edgeStrokeColor, strokeWidth, pathEffect)
+        // Draw the line using bezier curve or straight lines
+        if (useBezierCurve && edge.points.size >= 2) {
+            drawBezierEdgeLine(edge.points, theme.edgeStrokeColor, strokeWidth, pathEffect)
+        } else {
+            drawEdgeLine(edge.points, theme.edgeStrokeColor, strokeWidth, pathEffect)
+        }
 
         // Draw start arrow
         if (edge.startArrow != ArrowHead.NONE && edge.points.size >= 2) {
             val start = edge.points[0]
-            val next = edge.points[1]
+            val next = if (edge.points.size > 2) edge.points[1] else edge.points[1]
             drawArrowHead(
                 point = start,
                 angle = atan2((start.y - next.y).toDouble(), (start.x - next.x).toDouble()).toFloat(),
@@ -85,6 +91,31 @@ public object EdgeShapes {
                 drawEdgeLabel(edge.points, label, theme)
             }
         }
+    }
+
+    /**
+     * Draw edge line using bezier curves for smooth appearance.
+     */
+    private fun DrawScope.drawBezierEdgeLine(
+        points: List<Point>,
+        color: Color,
+        strokeWidth: Float,
+        pathEffect: PathEffect?
+    ) {
+        if (points.size < 2) return
+
+        val path = calculateSmoothBezierPath(points)
+
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(
+                width = strokeWidth,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+                pathEffect = pathEffect
+            )
+        )
     }
 
     private fun DrawScope.drawEdgeLine(
@@ -122,11 +153,41 @@ public object EdgeShapes {
         strokeWidth: Float
     ) {
         when (arrowHead) {
-            ArrowHead.ARROW -> drawArrow(point, angle, color, strokeWidth)
+            ArrowHead.ARROW -> drawFilledArrow(point, angle, color)
             ArrowHead.CIRCLE -> drawCircleHead(point, color, strokeWidth)
             ArrowHead.CROSS -> drawCross(point, angle, color, strokeWidth)
             ArrowHead.NONE -> { /* Do nothing */ }
         }
+    }
+
+    /**
+     * Draw a filled arrow head for better visibility.
+     */
+    private fun DrawScope.drawFilledArrow(
+        point: Point,
+        angle: Float,
+        color: Color
+    ) {
+        val arrowAngle = PI.toFloat() / 6 // 30 degrees
+        val size = ARROW_SIZE
+
+        val x1 = point.x - size * cos(angle - arrowAngle)
+        val y1 = point.y - size * sin(angle - arrowAngle)
+        val x2 = point.x - size * cos(angle + arrowAngle)
+        val y2 = point.y - size * sin(angle + arrowAngle)
+
+        val path = Path().apply {
+            moveTo(point.x, point.y)
+            lineTo(x1, y1)
+            lineTo(x2, y2)
+            close()
+        }
+
+        drawPath(
+            path = path,
+            color = color,
+            style = Fill
+        )
     }
 
     private fun DrawScope.drawArrow(
@@ -243,35 +304,64 @@ public object EdgeShapes {
     }
 
     /**
-     * Calculate a bezier curve through points for smoother edges.
+     * Calculate a smooth bezier curve through control points.
+     * Uses cubic bezier curves for 3+ points, quadratic for simpler cases.
      */
-    public fun calculateBezierPath(points: List<Point>): Path {
+    public fun calculateSmoothBezierPath(points: List<Point>): Path {
         val path = Path()
         if (points.isEmpty()) return path
 
         path.moveTo(points[0].x, points[0].y)
 
-        if (points.size == 2) {
-            path.lineTo(points[1].x, points[1].y)
-        } else {
-            for (i in 1 until points.size) {
-                val prev = points[i - 1]
-                val current = points[i]
-                val midX = (prev.x + current.x) / 2
-                val midY = (prev.y + current.y) / 2
-
-                if (i == 1) {
-                    path.lineTo(midX, midY)
-                } else {
-                    path.quadraticBezierTo(prev.x, prev.y, midX, midY)
-                }
-
-                if (i == points.size - 1) {
-                    path.lineTo(current.x, current.y)
+        when (points.size) {
+            1 -> { /* Just a point, nothing to draw */ }
+            2 -> {
+                // Simple straight line
+                path.lineTo(points[1].x, points[1].y)
+            }
+            3 -> {
+                // Use the middle point as a control point for quadratic bezier
+                path.quadraticBezierTo(
+                    points[1].x, points[1].y,
+                    points[2].x, points[2].y
+                )
+            }
+            4 -> {
+                // For 4 points, use two middle points as control points for cubic bezier
+                path.cubicTo(
+                    points[1].x, points[1].y,
+                    points[2].x, points[2].y,
+                    points[3].x, points[3].y
+                )
+            }
+            else -> {
+                // For more points, use a series of cubic bezier curves
+                // Using Catmull-Rom to Bezier conversion for smooth curves
+                for (i in 0 until points.size - 1) {
+                    val p0 = if (i > 0) points[i - 1] else points[i]
+                    val p1 = points[i]
+                    val p2 = points[i + 1]
+                    val p3 = if (i + 2 < points.size) points[i + 2] else points[i + 1]
+                    
+                    // Convert Catmull-Rom to Bezier control points
+                    val cp1x = p1.x + (p2.x - p0.x) / 6
+                    val cp1y = p1.y + (p2.y - p0.y) / 6
+                    val cp2x = p2.x - (p3.x - p1.x) / 6
+                    val cp2y = p2.y - (p3.y - p1.y) / 6
+                    
+                    path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y)
                 }
             }
         }
 
         return path
+    }
+
+    /**
+     * Calculate a bezier curve through points for smoother edges.
+     * Kept for backward compatibility.
+     */
+    public fun calculateBezierPath(points: List<Point>): Path {
+        return calculateSmoothBezierPath(points)
     }
 }
