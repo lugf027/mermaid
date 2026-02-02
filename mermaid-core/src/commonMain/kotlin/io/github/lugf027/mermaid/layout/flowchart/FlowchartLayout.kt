@@ -5,7 +5,9 @@ package io.github.lugf027.mermaid.layout.flowchart
 
 import io.github.lugf027.mermaid.layout.LayoutConfig
 import io.github.lugf027.mermaid.layout.LayoutEngine
+import io.github.lugf027.mermaid.layout.TextMeasureProvider
 import io.github.lugf027.mermaid.layout.TextMeasurer
+import io.github.lugf027.mermaid.layout.TextSize
 import io.github.lugf027.mermaid.model.Bounds
 import io.github.lugf027.mermaid.model.Direction
 import io.github.lugf027.mermaid.model.flowchart.*
@@ -23,17 +25,43 @@ import io.github.lugf027.mermaid.model.flowchart.*
 public object FlowchartLayout : LayoutEngine<FlowchartData> {
 
     override fun layout(data: FlowchartData, config: LayoutConfig): FlowchartData {
-        val layouter = FlowchartLayouter(data, config)
+        val layouter = FlowchartLayouter(data, config, textMeasureProvider = null, fontSize = 14f)
+        return layouter.layout()
+    }
+    
+    /**
+     * Layout with precise text measurement using TextMeasureProvider.
+     * 
+     * @param data The flowchart data to layout
+     * @param config Layout configuration
+     * @param textMeasureProvider Provider for precise text measurement (e.g., Compose TextMeasurer wrapper)
+     * @param fontSize Font size for text measurement (in sp)
+     * @return The updated flowchart data with positions calculated
+     */
+    public fun layout(
+        data: FlowchartData, 
+        config: LayoutConfig,
+        textMeasureProvider: TextMeasureProvider?,
+        fontSize: Float
+    ): FlowchartData {
+        val layouter = FlowchartLayouter(data, config, textMeasureProvider, fontSize)
         return layouter.layout()
     }
 }
 
 /**
  * Internal implementation of flowchart layout.
+ * 
+ * @param data The flowchart data to layout
+ * @param config Layout configuration
+ * @param textMeasureProvider Optional provider for precise text measurement
+ * @param fontSize Font size for text measurement (in sp)
  */
 internal class FlowchartLayouter(
     private val data: FlowchartData,
-    private val config: LayoutConfig
+    private val config: LayoutConfig,
+    private val textMeasureProvider: TextMeasureProvider?,
+    private val fontSize: Float
 ) {
     // Node ID -> rank (layer)
     private val nodeRanks = mutableMapOf<String, Int>()
@@ -469,35 +497,148 @@ internal class FlowchartLayouter(
 
     private fun calculateNodeSizes() {
         for (vertex in data.vertices.values) {
-            val textSize = TextMeasurer.measure(vertex.label, config)
+            // Measure text size - use precise measurement if provider available
+            val textSize = TextMeasurer.measureWithFallback(
+                vertex.label,
+                fontSize,
+                config,
+                textMeasureProvider
+            )
             
-            // Adjust size based on shape
-            val (width, height) = when (vertex.shape) {
-                NodeShape.CIRCLE, NodeShape.DOUBLE_CIRCLE -> {
-                    val size = maxOf(textSize.width, textSize.height) * 1.2f
-                    size to size
-                }
-                NodeShape.DIAMOND -> {
-                    // Diamond: text is placed in the inscribed rectangle of the diamond
-                    // For a diamond (rotated square), to fit text of width w and height h,
-                    // the diamond's diagonal needs to be at least w + h
-                    // Reference: mermaid-js question.ts uses s = w + h + padding
-                    val padding = config.textPadding
-                    val size = textSize.width + textSize.height + padding * 2
-                    size to size
-                }
-                NodeShape.HEXAGON -> {
-                    (textSize.width * 1.3f) to textSize.height
-                }
-                else -> textSize.width to textSize.height
-            }
+            // Calculate node size based on shape type (following mermaid-js logic)
+            val (width, height) = calculateShapeSize(vertex.shape, textSize, config)
             
             vertex.bounds = Bounds(
                 x = 0f,
                 y = 0f,
-                width = width,
-                height = height
+                width = width.coerceAtLeast(config.nodeMinWidth),
+                height = height.coerceAtLeast(config.nodeMinHeight)
             )
+        }
+    }
+    
+    /**
+     * Calculate node dimensions based on shape type and text size.
+     * Follows mermaid-js sizing logic for each shape.
+     * 
+     * @param shape The node shape type
+     * @param textSize The measured text dimensions
+     * @param config Layout configuration with padding values
+     * @return Pair of (width, height) for the node
+     */
+    private fun calculateShapeSize(
+        shape: NodeShape,
+        textSize: TextSize,
+        config: LayoutConfig
+    ): Pair<Float, Float> {
+        val padding = config.textPadding
+        val textWidth = textSize.width
+        val textHeight = textSize.height
+        
+        return when (shape) {
+            // Diamond (菱形): mermaid-js question.ts
+            // s = w + h where w = bbox.width + padding, h = bbox.height + padding
+            // The diamond size is the sum of text width and height plus padding
+            NodeShape.DIAMOND -> {
+                val w = textWidth + padding
+                val h = textHeight + padding
+                val s = w + h
+                s to s
+            }
+            
+            // Circle: diameter = max(textWidth, textHeight) + padding * 2
+            // Ensure text fits inside the circle
+            NodeShape.CIRCLE -> {
+                val diameter = maxOf(textWidth, textHeight) + padding * 2
+                diameter to diameter
+            }
+            
+            // Double Circle: slightly larger than single circle
+            NodeShape.DOUBLE_CIRCLE -> {
+                val innerDiameter = maxOf(textWidth, textHeight) + padding * 2
+                // Add extra space for the outer circle (typically 6-8px gap)
+                val diameter = innerDiameter + 8f
+                diameter to diameter
+            }
+            
+            // Hexagon (六边形): mermaid-js hexagon.ts
+            // h = bbox.height + padding
+            // m = h / 4 (the slope margin)
+            // w = bbox.width + 2 * m + padding
+            NodeShape.HEXAGON -> {
+                val h = textHeight + padding * 2
+                val m = h / 4
+                val w = textWidth + 2 * m + padding * 2
+                w to h
+            }
+            
+            // Stadium (体育场形/胶囊形): mermaid-js stadium.ts
+            // h = bbox.height + padding
+            // w = bbox.width + h / 4 + padding (extra width for rounded ends)
+            NodeShape.STADIUM -> {
+                val h = textHeight + padding * 2
+                val w = textWidth + h / 4 + padding * 2
+                w to h
+            }
+            
+            // Parallelogram (平行四边形): need extra width for the slant
+            // Slant is typically 1/4 of the height
+            NodeShape.PARALLELOGRAM, NodeShape.PARALLELOGRAM_ALT -> {
+                val h = textHeight + padding * 2
+                val slant = h / 4
+                val w = textWidth + slant * 2 + padding * 2
+                w to h
+            }
+            
+            // Trapezoid (梯形): wider at bottom, narrower at top
+            // Need extra width for the inward slope
+            NodeShape.TRAPEZOID, NodeShape.TRAPEZOID_ALT -> {
+                val h = textHeight + padding * 2
+                val inset = h / 4
+                val w = textWidth + inset * 2 + padding * 2
+                w to h
+            }
+            
+            // Subroutine (子程序): has double vertical bars on sides
+            // Extra width for the bars
+            NodeShape.SUBROUTINE -> {
+                val barWidth = 8f
+                val w = textWidth + padding * 2 + barWidth * 2
+                val h = textHeight + padding * 2
+                w to h
+            }
+            
+            // Cylinder (圆柱体): extra height for top and bottom ellipses
+            NodeShape.CYLINDER -> {
+                val w = textWidth + padding * 2
+                val ellipseHeight = 10f // Height of each ellipse cap
+                val h = textHeight + padding * 2 + ellipseHeight * 2
+                w to h
+            }
+            
+            // Asymmetric (非对称/旗帜形): extra width for the flag tail
+            NodeShape.ASYMMETRIC -> {
+                val h = textHeight + padding * 2
+                val tailWidth = h / 4
+                val w = textWidth + tailWidth + padding * 2
+                w to h
+            }
+            
+            // Rectangle, Rounded, and other standard shapes
+            // w = textWidth + padding * 2
+            // h = textHeight + padding * 2
+            NodeShape.RECTANGLE, NodeShape.ROUNDED -> {
+                val w = textWidth + padding * 2
+                val h = textHeight + padding * 2
+                w to h
+            }
+            
+            // Default for any other shapes
+            else -> {
+                val w = textWidth + padding * 2
+                val h = textHeight + padding * 2
+                w to h
+            }
         }
     }
 

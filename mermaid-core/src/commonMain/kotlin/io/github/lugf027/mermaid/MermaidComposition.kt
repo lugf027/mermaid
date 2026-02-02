@@ -5,6 +5,7 @@ package io.github.lugf027.mermaid
 
 import androidx.compose.runtime.Stable
 import io.github.lugf027.mermaid.layout.LayoutConfig
+import io.github.lugf027.mermaid.layout.TextMeasureProvider
 import io.github.lugf027.mermaid.layout.flowchart.FlowchartLayout
 import io.github.lugf027.mermaid.model.DiagramData
 import io.github.lugf027.mermaid.model.DiagramType
@@ -53,12 +54,35 @@ public class MermaidComposition internal constructor(
             text: String,
             layoutConfig: LayoutConfig = LayoutConfig()
         ): MermaidComposition {
+            return parse(text, layoutConfig, null, 14f)
+        }
+        
+        /**
+         * Parse Mermaid text and create a composition with precise text measurement.
+         * 
+         * @param text The Mermaid diagram text
+         * @param layoutConfig Layout configuration
+         * @param textMeasureProvider Provider for precise text measurement (e.g., Compose TextMeasurer wrapper)
+         * @param fontSize Font size for text measurement (in sp)
+         * @return The parsed and laid out composition
+         */
+        public fun parse(
+            text: String,
+            layoutConfig: LayoutConfig,
+            textMeasureProvider: TextMeasureProvider?,
+            fontSize: Float
+        ): MermaidComposition {
             // Parse the text
             val diagramData = MermaidParser.parse(text)
             
-            // Apply layout
+            // Apply layout with text measurement provider
             val layoutData = when (diagramData) {
-                is FlowchartData -> FlowchartLayout.layout(diagramData, layoutConfig)
+                is FlowchartData -> FlowchartLayout.layout(
+                    diagramData, 
+                    layoutConfig,
+                    textMeasureProvider,
+                    fontSize
+                )
                 else -> diagramData
             }
             

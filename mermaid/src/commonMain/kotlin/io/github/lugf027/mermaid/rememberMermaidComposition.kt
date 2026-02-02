@@ -4,6 +4,8 @@
 package io.github.lugf027.mermaid
 
 import androidx.compose.runtime.*
+import io.github.lugf027.mermaid.layout.LayoutConfig
+import io.github.lugf027.mermaid.layout.TextMeasureProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -38,6 +40,45 @@ public fun rememberMermaidComposition(
 }
 
 /**
+ * Remember and load a Mermaid composition with precise text measurement.
+ * 
+ * @param keys Keys that trigger recomposition when changed
+ * @param textMeasureProvider Provider for precise text measurement
+ * @param fontSize Font size for text measurement
+ * @param spec Lambda that returns the composition spec
+ * @return The composition result (Loading, Success, or Error)
+ */
+@Composable
+public fun rememberMermaidComposition(
+    vararg keys: Any?,
+    textMeasureProvider: TextMeasureProvider?,
+    fontSize: Float,
+    spec: suspend () -> MermaidCompositionSpec,
+): MermaidCompositionResult {
+    var result by remember { mutableStateOf<MermaidCompositionResult>(MermaidCompositionResult.Loading) }
+
+    LaunchedEffect(keys = keys) {
+        result = MermaidCompositionResult.Loading
+        result = try {
+            val compositionSpec = spec()
+            // Use the version with text measurement provider
+            val composition = if (textMeasureProvider != null) {
+                compositionSpec.load(textMeasureProvider, fontSize)
+            } else {
+                withContext(Dispatchers.Default) {
+                    compositionSpec.load()
+                }
+            }
+            MermaidCompositionResult.Success(composition)
+        } catch (e: Exception) {
+            MermaidCompositionResult.Error(e)
+        }
+    }
+
+    return result
+}
+
+/**
  * Remember and load a Mermaid composition from text.
  * 
  * @param text The Mermaid diagram text
@@ -49,6 +90,23 @@ public fun rememberMermaidComposition(
 ): MermaidCompositionResult {
     return rememberMermaidComposition(text) {
         MermaidCompositionSpec.String(text)
+    }
+}
+
+/**
+ * Remember and load a Mermaid composition from text with configuration.
+ * 
+ * @param text The Mermaid diagram text
+ * @param layoutConfig Layout configuration
+ * @return The composition result
+ */
+@Composable
+public fun rememberMermaidComposition(
+    text: String,
+    layoutConfig: LayoutConfig
+): MermaidCompositionResult {
+    return rememberMermaidComposition(text, layoutConfig) {
+        MermaidCompositionSpec.String(text, layoutConfig = layoutConfig)
     }
 }
 

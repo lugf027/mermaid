@@ -110,11 +110,35 @@ public data class TextSize(
 )
 
 /**
+ * Interface for precise text measurement.
+ * 
+ * This interface allows injecting platform-specific text measurement implementations
+ * (e.g., Compose TextMeasurer) into the layout engine for accurate text sizing.
+ */
+public interface TextMeasureProvider {
+    /**
+     * Measure the size of text with the given font size.
+     * 
+     * @param text The text to measure
+     * @param fontSize The font size in sp
+     * @return The measured text dimensions (width and height)
+     */
+    fun measureText(text: String, fontSize: Float): TextSize
+}
+
+/**
  * Simple text measurement utility.
+ * 
+ * Provides both character-based estimation (fallback) and provider-based precise measurement.
  */
 public object TextMeasurer {
     /**
-     * Estimate the size of text.
+     * Estimate the size of text using character width approximation.
+     * This is the fallback method when no TextMeasureProvider is available.
+     * 
+     * @param text The text to measure
+     * @param config Layout configuration containing charWidth and lineHeight
+     * @return Estimated text dimensions
      */
     public fun measure(text: String, config: LayoutConfig): TextSize {
         val lines = text.split('\n')
@@ -122,5 +146,45 @@ public object TextMeasurer {
         val width = maxLineLength * config.charWidth + config.textPadding * 2
         val height = lines.size * config.lineHeight + config.textPadding * 2
         return TextSize(width.coerceAtLeast(config.nodeMinWidth), height.coerceAtLeast(config.nodeMinHeight))
+    }
+
+    /**
+     * Measure text size using a TextMeasureProvider for precise measurement.
+     * 
+     * @param text The text to measure
+     * @param fontSize The font size in sp
+     * @param provider The text measurement provider (e.g., Compose TextMeasurer wrapper)
+     * @return Precise text dimensions from the provider
+     */
+    public fun measure(text: String, fontSize: Float, provider: TextMeasureProvider): TextSize {
+        return provider.measureText(text, fontSize)
+    }
+
+    /**
+     * Measure text size with optional provider.
+     * Falls back to character estimation if provider is null.
+     * 
+     * @param text The text to measure
+     * @param fontSize The font size in sp
+     * @param config Layout configuration for fallback estimation
+     * @param provider Optional text measurement provider
+     * @return Text dimensions (precise if provider available, estimated otherwise)
+     */
+    public fun measureWithFallback(
+        text: String,
+        fontSize: Float,
+        config: LayoutConfig,
+        provider: TextMeasureProvider?
+    ): TextSize {
+        return if (provider != null) {
+            provider.measureText(text, fontSize)
+        } else {
+            // Fallback to character-based estimation (without padding, raw text size)
+            val lines = text.split('\n')
+            val maxLineLength = lines.maxOfOrNull { it.length } ?: 0
+            val width = maxLineLength * config.charWidth
+            val height = lines.size * config.lineHeight
+            TextSize(width, height)
+        }
     }
 }
