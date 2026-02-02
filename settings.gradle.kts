@@ -41,6 +41,3 @@ include(":example:shared")
 include(":example:androidApp")
 include(":example:desktopApp")
 include(":example:webApp")
-
-// Keep original composeApp for reference (can be removed later)
-include(":composeApp")
