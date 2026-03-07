@@ -73,16 +73,17 @@ class DagreLayout : LayoutEngine {
             val startNode = nodeMap[edge.start]
             val endNode = nodeMap[edge.end]
             if (startNode != null && endNode != null) {
-                // 生成边的路径点（直线连接，匹配 dagre 对相邻层边的行为）
                 val points = computeEdgePoints(startNode, endNode, isHorizontal, rankSep)
                 val labelPos = if (edge.label.isNotEmpty()) {
                     // 标签放在路径的中间点
-                    val mid = points[points.size / 2]
-                    if (points.size % 2 == 0 && points.size >= 2) {
-                        val a = points[points.size / 2 - 1]
-                        val b = points[points.size / 2]
-                        Point((a.x + b.x) / 2f, (a.y + b.y) / 2f)
-                    } else mid
+                    if (points.size >= 2) {
+                        val midIdx = points.size / 2
+                        if (points.size % 2 == 0) {
+                            val a = points[midIdx - 1]
+                            val b = points[midIdx]
+                            Point((a.x + b.x) / 2f, (a.y + b.y) / 2f)
+                        } else points[midIdx]
+                    } else points.first()
                 } else null
                 edge.copy(points = points, labelPos = labelPos)
             } else edge
@@ -334,11 +335,17 @@ class DagreLayout : LayoutEngine {
     }
 
     /**
-     * 计算边的路径点（匹配 dagre 行为）。
+     * 计算边的路径点（模拟 dagre 行为）。
      *
-     * dagre 对相邻层的边不插入虚拟节点，边的 points 只有
-     * src.center 和 tgt.center 两个点（直线连接）。
-     * 节点边界交点由 FlowRenderer 的 edgePointForShape 计算。
+     * dagre 通过 makeSpaceForEdgeLabels 将 minlen*2，使所有边都会创建
+     * 虚拟节点（dummy node）。虚拟节点的坐标成为边的中间控制点。
+     *
+     * 对于 TB/BT 布局：
+     * - 同列节点（|dx| < 1）：3 个点（src → midPoint → tgt），midPoint 在正中间
+     * - 不同列节点：3 个点，midPoint 在两层中间，x = 目标节点的 x
+     *
+     * mermaid-js 的 edges.js 去掉首尾后保留 [midPoint]，然后加 intersect 交点。
+     * generateRoundedPath(radius=5) 在 midPoint 处生成圆角弯曲。
      */
     private fun computeEdgePoints(
         startNode: Node,
@@ -346,7 +353,48 @@ class DagreLayout : LayoutEngine {
         isHorizontal: Boolean,
         rankSep: Float,
     ): List<Point> {
-        return listOf(Point(startNode.x, startNode.y), Point(endNode.x, endNode.y))
+        val sx = startNode.x
+        val sy = startNode.y
+        val ex = endNode.x
+        val ey = endNode.y
+
+        if (isHorizontal) {
+            val dy = kotlin.math.abs(ey - sy)
+            // 水平布局中间点
+            val midX = (sx + ex) / 2f
+            val midY = if (dy < 1f) sy else (sy + ey) / 2f
+            return listOf(
+                Point(sx, sy),
+                Point(midX, midY),
+                Point(ex, ey),
+            )
+        } else {
+            // 垂直布局（TB/BT）
+            // midY 在源节点底边和目标节点顶边的中间
+            val srcBottom = sy + startNode.height / 2f
+            val tgtTop = ey - endNode.height / 2f
+            val midY = (srcBottom + tgtTop) / 2f
+
+            val dx = kotlin.math.abs(ex - sx)
+            if (dx < 1f) {
+                // 同列：中间点在正中间（垂直直线经过一个中间控制点）
+                return listOf(
+                    Point(sx, sy),
+                    Point(sx, midY),
+                    Point(ex, ey),
+                )
+            }
+
+            // 不同列：虚拟节点 x 坐标靠近目标节点
+            // dagre 的 ordering + position 会让虚拟节点在目标节点附近
+            // 这样 intersect 计算出的交点更匹配 mermaid-js 的视觉效果
+            val midX = ex
+            return listOf(
+                Point(sx, sy),
+                Point(midX, midY),
+                Point(ex, ey),
+            )
+        }
     }
 
     // 在 layout() 中缓存的邻接表引用，供 assignCoordinates 使用
