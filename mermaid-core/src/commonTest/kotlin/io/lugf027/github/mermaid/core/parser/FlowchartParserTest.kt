@@ -35,8 +35,62 @@ class FlowchartParserTest {
 
         val db = diagram.db as FlowDb
         val vertices = db.getVertices()
-        assertTrue(vertices.isNotEmpty(), "Should have at least 1 vertex")
-        assertTrue(db.getEdges().isNotEmpty(), "Should have at least 1 edge")
+        assertEquals(4, vertices.size, "Should have 4 vertices (A, B, C, D)")
+        assertEquals(3, db.getEdges().size, "Should have 3 edges")
+
+        // 验证节点标签
+        assertEquals("Start", vertices["A"]?.text)
+        assertEquals("Decision", vertices["B"]?.text)
+        assertEquals("End", vertices["C"]?.text)
+        assertEquals("Retry", vertices["D"]?.text)
+
+        // 验证边文本
+        val edges = db.getEdges()
+        val bToC = edges.find { it.start == "B" && it.end == "C" }
+        assertNotNull(bToC, "Edge B->C should exist")
+        assertEquals("Yes", bToC.text)
+
+        val bToD = edges.find { it.start == "B" && it.end == "D" }
+        assertNotNull(bToD, "Edge B->D should exist")
+        assertEquals("No", bToD.text)
+    }
+
+    @Test
+    fun parseCompleteFlowchart() {
+        val diagram = MermaidKMP.parse("""
+            flowchart TD
+                A[Start] --> B{Is it sunny?}
+                B -->|Yes| C[Go to the park]
+                B -->|No| D[Stay home]
+                C --> E[Have fun!]
+                D --> E
+                E --> F[End]
+        """.trimIndent())
+
+        val db = diagram.db as FlowDb
+        val vertices = db.getVertices()
+        assertEquals(6, vertices.size, "Should have 6 vertices (A-F)")
+
+        // 验证所有节点标签
+        assertEquals("Start", vertices["A"]?.text)
+        assertEquals("Is it sunny?", vertices["B"]?.text)
+        assertEquals("Go to the park", vertices["C"]?.text)
+        assertEquals("Stay home", vertices["D"]?.text)
+        assertEquals("Have fun!", vertices["E"]?.text)
+        assertEquals("End", vertices["F"]?.text)
+
+        // 验证边数量
+        assertEquals(6, db.getEdges().size, "Should have 6 edges")
+
+        // 验证带文本的边
+        val edges = db.getEdges()
+        val bToC = edges.find { it.start == "B" && it.end == "C" }
+        assertNotNull(bToC, "Edge B->C should exist")
+        assertEquals("Yes", bToC.text)
+
+        val bToD = edges.find { it.start == "B" && it.end == "D" }
+        assertNotNull(bToD, "Edge B->D should exist")
+        assertEquals("No", bToD.text)
     }
 
     @Test

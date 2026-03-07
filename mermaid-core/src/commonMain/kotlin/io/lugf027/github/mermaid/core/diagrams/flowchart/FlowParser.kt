@@ -367,6 +367,7 @@ class FlowParser(private val db: FlowDb) : ParserDefinition {
      * 支持格式：
      * -->, ---, -.->，==>，<-->, x--x, o--o
      * 带文本：--text-->, --|text|-->, -.text.->
+     * 后置文本：-->|text|, ==>|text|
      * 长边：--->, ====>, -...->
      */
     private fun tryParseLink(): Pair<LinkInfo, String>? {
@@ -443,7 +444,7 @@ class FlowParser(private val db: FlowDb) : ParserDefinition {
         var length = 1
         var linkText = ""
 
-        // 检查是否有 |text| 模式
+        // 检查是否有 |text| 模式 (前置：--|text|-->)
         if (!isAtEnd() && current() == '|') {
             advance(1)
             linkText = readUntil("|")
@@ -488,6 +489,16 @@ class FlowParser(private val db: FlowDb) : ParserDefinition {
                 pos = saved; line = savedLine; col = savedCol
                 return null
             }
+
+        // 后置文本模式：-->|text| 或 ==>|text| 等
+        // 箭头解析完毕后，检查紧接着是否有 |text|
+        if (linkText.isEmpty() && !isAtEnd() && current() == '|') {
+            advance(1) // skip opening |
+            linkText = readUntil("|")
+            if (!isAtEnd() && current() == '|') {
+                advance(1) // skip closing |
+            }
+        }
 
         return LinkInfo(arrowType, strokeStyle, length.coerceAtMost(10)) to linkText
     }

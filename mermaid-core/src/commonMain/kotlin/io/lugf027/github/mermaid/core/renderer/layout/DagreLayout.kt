@@ -181,6 +181,7 @@ class DagreLayout : LayoutEngine {
 
     /**
      * 分配节点坐标。
+     * 两阶段：1) 初始左对齐布局 2) 基于连接关系居中调整。
      */
     private fun assignCoordinates(
         layers: List<List<String>>,
@@ -189,32 +190,57 @@ class DagreLayout : LayoutEngine {
         rankSep: Float,
         isHorizontal: Boolean,
     ) {
-        var rankOffset = 0f
         val padding = 40f
 
+        // 阶段 1：计算每层的宽度/高度，分配 rank 方向坐标
+        data class LayerInfo(val totalSize: Float, val maxCross: Float)
+        val layerInfos = mutableListOf<LayerInfo>()
+
         for (layer in layers) {
-            var posOffset = 0f
-            var maxSize = 0f
+            var totalSize = 0f
+            var maxCross = 0f
+            for (nodeId in layer) {
+                val node = nodeMap[nodeId] ?: continue
+                if (isHorizontal) {
+                    totalSize += node.height + nodeSep
+                    maxCross = max(maxCross, node.width)
+                } else {
+                    totalSize += node.width + nodeSep
+                    maxCross = max(maxCross, node.height)
+                }
+            }
+            if (layer.isNotEmpty()) totalSize -= nodeSep // 最后一个节点后不需要间距
+            layerInfos.add(LayerInfo(totalSize, maxCross))
+        }
+
+        // 计算所有层中最大的宽度（用于居中）
+        val maxLayerSize = layerInfos.maxOfOrNull { it.totalSize } ?: 0f
+
+        // 分配坐标
+        var rankOffset = 0f
+        for ((layerIndex, layer) in layers.withIndex()) {
+            val info = layerInfos[layerIndex]
+            // 居中偏移：让较窄的层在宽层中居中
+            val centeringOffset = (maxLayerSize - info.totalSize) / 2f
+            var posOffset = centeringOffset
 
             for (nodeId in layer) {
                 val node = nodeMap[nodeId] ?: continue
 
                 if (isHorizontal) {
-                    node.x = rankOffset + padding + node.width / 2f
+                    node.x = rankOffset + padding + info.maxCross / 2f
                     node.y = posOffset + padding + node.height / 2f
                     posOffset += node.height + nodeSep
-                    maxSize = max(maxSize, node.width)
                 } else {
                     node.x = posOffset + padding + node.width / 2f
-                    node.y = rankOffset + padding + node.height / 2f
+                    node.y = rankOffset + padding + info.maxCross / 2f
                     posOffset += node.width + nodeSep
-                    maxSize = max(maxSize, node.height)
                 }
 
                 nodeMap[nodeId] = node
             }
 
-            rankOffset += maxSize + rankSep
+            rankOffset += info.maxCross + rankSep
         }
     }
 

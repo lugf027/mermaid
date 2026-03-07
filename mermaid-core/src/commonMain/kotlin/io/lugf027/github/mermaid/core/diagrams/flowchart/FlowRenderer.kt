@@ -71,10 +71,29 @@ class FlowRenderer : DiagramRenderer {
         val updatedNodes = layoutData.nodes.map { node ->
             if (node.isGroup) return@map node
             val measured = textMeasurer.measure(node.label, textStyle)
-            node.copy(
-                width = measured.size.width.toFloat() + DEFAULT_NODE_PADDING * 2,
-                height = measured.size.height.toFloat() + DEFAULT_NODE_PADDING * 2,
-            )
+            val textW = measured.size.width.toFloat()
+            val textH = measured.size.height.toFloat()
+            // 不同形状需要不同的尺寸策略
+            val (w, h) = when (node.shape) {
+                ShapeId.DIAMOND -> {
+                    // 菱形需要 sqrt(2) 倍空间来容纳文本
+                    val side = max(textW, textH) + DEFAULT_NODE_PADDING * 4
+                    side to side
+                }
+                ShapeId.CIRCLE, ShapeId.DOUBLE_CIRCLE -> {
+                    // 圆形取最大边
+                    val d = max(textW, textH) + DEFAULT_NODE_PADDING * 2
+                    d to d
+                }
+                ShapeId.HEXAGON -> {
+                    // 六边形需要额外水平空间
+                    (textW + DEFAULT_NODE_PADDING * 4) to (textH + DEFAULT_NODE_PADDING * 2)
+                }
+                else -> {
+                    (textW + DEFAULT_NODE_PADDING * 2) to (textH + DEFAULT_NODE_PADDING * 2)
+                }
+            }
+            node.copy(width = w, height = h)
         }
 
         // 2. 构建含尺寸信息的 LayoutData 并执行 Dagre 布局
