@@ -94,6 +94,55 @@ class FlowchartParserTest {
     }
 
     @Test
+    fun parseChristmasFlowchart() {
+        val diagram = MermaidKMP.parse("""
+            flowchart TD
+                A[Christmas] -->|Get money| B(Go shopping)
+                B --> C{Let me think}
+                C -->|One| D[Laptop]
+                C -->|Two| E[iPhone]
+                C -->|Three| F[fa:fa-car Car]
+        """.trimIndent())
+
+        val db = diagram.db as FlowDb
+        val vertices = db.getVertices()
+        assertEquals(6, vertices.size, "Should have 6 vertices (A-F)")
+
+        // 验证节点标签
+        assertEquals("Christmas", vertices["A"]?.text)
+        assertEquals("Go shopping", vertices["B"]?.text)
+        assertEquals("Let me think", vertices["C"]?.text)
+        assertEquals("Laptop", vertices["D"]?.text)
+        assertEquals("iPhone", vertices["E"]?.text)
+        assertEquals("fa:fa-car Car", vertices["F"]?.text)
+
+        // 验证边数量
+        assertEquals(5, db.getEdges().size, "Should have 5 edges")
+
+        // 验证带文本的边
+        val edges = db.getEdges()
+        val aToB = edges.find { it.start == "A" && it.end == "B" }
+        assertNotNull(aToB, "Edge A->B should exist")
+        assertEquals("Get money", aToB.text)
+
+        val cToD = edges.find { it.start == "C" && it.end == "D" }
+        assertNotNull(cToD, "Edge C->D should exist")
+        assertEquals("One", cToD.text)
+
+        val cToE = edges.find { it.start == "C" && it.end == "E" }
+        assertNotNull(cToE, "Edge C->E should exist")
+        assertEquals("Two", cToE.text)
+
+        val cToF = edges.find { it.start == "C" && it.end == "F" }
+        assertNotNull(cToF, "Edge C->F should exist")
+        assertEquals("Three", cToF.text)
+
+        // 验证形状类型
+        assertNotNull(vertices["B"]?.type, "B should have ROUND type")
+        assertNotNull(vertices["C"]?.type, "C should have DIAMOND type")
+    }
+
+    @Test
     fun parseFlowchartGraph() {
         val diagram = MermaidKMP.parse("""
             graph TD
