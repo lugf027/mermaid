@@ -29,6 +29,7 @@ kotlin {
         val webMain by getting {
             dependencies {
                 implementation(project(":example:shared"))
+                implementation(project(":mermaid-core"))
                 implementation(compose.foundation)
             }
         }
