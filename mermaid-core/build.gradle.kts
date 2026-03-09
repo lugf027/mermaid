@@ -4,8 +4,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
     alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.composeMultiplatform)
-    alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 val _jvmTarget = findProperty("jvmTarget").toString()
@@ -18,7 +17,7 @@ kotlin {
         iosSimulatorArm64(),
     ).forEach { iosTarget ->
         iosTarget.binaries.framework {
-            baseName = "shared"
+            baseName = "mermaid-core"
             isStatic = true
         }
     }
@@ -29,23 +28,15 @@ kotlin {
     wasmJs { browser() }
 
     androidLibrary {
-        androidResources.enable = true
+        namespace = "io.lugf027.github.mermaid.core"
+        compileSdk = (findProperty("android.compileSdk") as String).toInt()
+        minSdk = (findProperty("android.minSdk") as String).toInt()
     }
 
     sourceSets {
         commonMain.dependencies {
-            implementation(compose.runtime)
-            implementation(compose.foundation)
-            implementation(libs.compose.material3)
-            implementation(compose.ui)
-            implementation(compose.components.resources)
-            implementation(libs.compose.uiToolingPreview)
-            implementation(libs.androidx.lifecycle.viewmodelCompose)
-            implementation(libs.androidx.lifecycle.runtimeCompose)
-            implementation(projects.mermaidCore)
-        }
-        androidMain.dependencies {
-            implementation(libs.compose.uiToolingPreview)
+            implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.serialization.json)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -53,9 +44,6 @@ kotlin {
     }
 
     targets.withType(KotlinMultiplatformAndroidLibraryTarget::class.java).configureEach {
-        namespace = "io.lugf027.github.mermaid.mermaid.shared"
-        compileSdk = (findProperty("android.compileSdk") as String).toInt()
-        minSdk = (findProperty("android.minSdk") as String).toInt()
         compilerOptions {
             jvmTarget.set(JvmTarget.fromTarget(_jvmTarget))
         }
