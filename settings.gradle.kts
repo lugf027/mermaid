@@ -33,6 +33,7 @@ plugins {
 }
 
 include(":mermaid-core")
+include(":mermaid-cli")
 include(":example:shared")
 include(":example:androidApp")
 include(":example:desktopApp")
