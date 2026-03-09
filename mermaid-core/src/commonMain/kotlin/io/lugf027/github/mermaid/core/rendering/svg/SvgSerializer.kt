@@ -41,7 +41,8 @@ object SvgSerializer {
         val isTextElement = element is SvgText || element is SvgTspan ||
             element is SvgTitle || element is SvgDesc
         val isStyleElement = element is SvgStyle
-        val isSelfClosing = element.children.isEmpty() && !isTextElement && !isStyleElement
+        val isRootElement = element is SvgRoot
+        val isSelfClosing = element.children.isEmpty() && !isTextElement && !isStyleElement && !isRootElement
 
         if (doIndent) sb.append(prefix)
 

@@ -7,6 +7,7 @@ import io.lugf027.github.mermaid.core.diagram.DiagramOrchestration
 import io.lugf027.github.mermaid.core.diagram.DiagramRegistry
 import io.lugf027.github.mermaid.core.diagram.error.ErrorDiagram
 import io.lugf027.github.mermaid.core.preprocess.Preprocessor
+import io.lugf027.github.mermaid.core.rendering.shapes.ShapeRegistry
 import io.lugf027.github.mermaid.core.rendering.svg.SvgSerializer
 import io.lugf027.github.mermaid.core.themes.ThemeManager
 import io.lugf027.github.mermaid.core.util.IdGenerator
@@ -58,6 +59,9 @@ object MermaidApi {
         // 注册所有图表
         DiagramOrchestration.registerAll()
 
+        // 注册内置形状
+        ShapeRegistry.registerBuiltinShapes()
+
         initialized = true
         log.info("MermaidApi initialized successfully")
     }
@@ -99,11 +103,6 @@ object MermaidApi {
         // 5. 创建 DB 并解析
         val db = definition.dbFactory()
 
-        // 设置从 frontmatter 提取的标题
-        if (preprocessResult.title != null) {
-            db.setDiagramTitle(preprocessResult.title)
-        }
-
         // 解析
         try {
             definition.parser.parse(code, db)
@@ -123,6 +122,11 @@ object MermaidApi {
                     config = config
                 )
             }
+        }
+
+        // 设置从 frontmatter 提取的标题（在解析之后，避免被 parser.clear() 覆盖）
+        if (preprocessResult.title != null) {
+            db.setDiagramTitle(preprocessResult.title)
         }
 
         return Diagram(
