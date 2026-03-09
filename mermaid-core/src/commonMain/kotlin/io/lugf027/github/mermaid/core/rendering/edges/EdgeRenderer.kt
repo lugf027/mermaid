@@ -4,6 +4,7 @@ import io.lugf027.github.mermaid.core.layout.LayoutEdge
 import io.lugf027.github.mermaid.core.layout.Point
 import io.lugf027.github.mermaid.core.rendering.svg.*
 import io.lugf027.github.mermaid.core.themes.ThemeVariables
+import io.lugf027.github.mermaid.core.util.TextUtils
 
 /**
  * 边渲染器 - 对标 mermaid-js edges.js
@@ -56,7 +57,9 @@ object EdgeRenderer {
     }
 
     /**
-     * 构建路径数据
+     * 构建路径数据 - 使用直线段连接路径点
+     *
+     * mermaid-js 的简单流程图边使用 d3.line() 生成的直线路径
      */
     private fun buildPathData(edge: LayoutEdge): String {
         val points = edge.points
@@ -65,30 +68,20 @@ object EdgeRenderer {
         val builder = SvgPathBuilder()
         builder.moveTo(points[0].x, points[0].y)
 
-        if (points.size <= 2) {
-            // 直线
-            for (i in 1 until points.size) {
-                builder.lineTo(points[i].x, points[i].y)
-            }
-        } else {
-            // 使用贝塞尔曲线平滑路径
-            for (i in 1 until points.size - 1 step 2) {
-                val cp = points[i]
-                val end = if (i + 1 < points.size) points[i + 1] else points.last()
-                builder.quadTo(cp.x, cp.y, end.x, end.y)
-            }
-
-            // 如果剩余点未处理，用直线连接
-            if (points.size % 2 == 0) {
-                builder.lineTo(points.last().x, points.last().y)
-            }
+        // 使用直线段连接所有路径点
+        for (i in 1 until points.size) {
+            builder.lineTo(points[i].x, points[i].y)
         }
 
         return builder.build()
     }
 
     /**
-     * 渲染边标签
+     * 渲染边标签 - 对齐 mermaid-js 的 edgeLabel 样式
+     *
+     * mermaid-js 中边标签继承 SVG 根元素的 16px 字号，
+     * rect 尺寸 = 文本宽度 × 24px（foreignObject 高度），
+     * 居中于 edgeLabel 的 translate 位置。
      */
     private fun renderLabel(g: SvgGroup, edge: LayoutEdge, tv: ThemeVariables) {
         val labelGroup = g.group {
@@ -96,10 +89,10 @@ object EdgeRenderer {
             translate(edge.x, edge.y)
         }
 
-        // 背景矩形
         val label = edge.label!!
-        val textWidth = label.length * 8.0 + 10
-        val textHeight = 20.0
+        // mermaid-js 使用 16px 继承字号测量标签宽度
+        val textWidth = TextUtils.estimateTextWidth(label, 16.0)
+        val textHeight = 24.0  // mermaid-js foreignObject 高度
 
         labelGroup.rect(-textWidth / 2, -textHeight / 2, textWidth, textHeight) {
             attr("fill", tv.edgeLabelBackground)

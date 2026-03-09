@@ -37,11 +37,15 @@ class FlowchartRenderer : DiagramRenderer {
         return buildSvg {
             attr("id", diagramId)
             attr("class", "flowchart")
+            attr("role", "graphics-document document")
+            attr("aria-roledescription", "flowchart-v2")
 
-            // 生成样式
+            // 生成样式 - style 直接在 SVG 根下（mermaid-js 风格）
             val css = ThemeManager.generateStyles(themeVariables, "flowchart", diagramId)
+            style(css)
+
+            // markers 在 defs 中
             defs {
-                style(css)
                 Markers.addMarkers(this, diagramId)
             }
 
@@ -117,6 +121,6 @@ class FlowchartRenderer : DiagramRenderer {
         root.viewBox(minX - padding, minY - padding, width, height)
         root.attr("width", width)
         root.attr("height", height)
-        root.attr("style", "max-width: ${width}px;")
+        root.attr("style", "max-width: ${SvgElement.formatNumber(width)}px; background-color: white;")
     }
 }

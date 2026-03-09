@@ -110,7 +110,7 @@ class FlowchartDb : DiagramDB {
     fun getData(config: MermaidConfig): LayoutData {
         val flowConfig = config.flowchart
 
-        val layoutNodes = _vertices.map { (id, vertex) ->
+        val layoutNodes = _vertices.entries.mapIndexed { idx, (id, vertex) ->
             LayoutNode(
                 id = id,
                 label = vertex.text ?: id,
@@ -120,7 +120,7 @@ class FlowchartDb : DiagramDB {
                 link = vertex.link,
                 linkTarget = vertex.linkTarget,
                 tooltip = vertex.tooltip,
-                domId = "flowchart-${id}",
+                domId = "flowchart-${id}-${idx}",
                 padding = (flowConfig?.padding ?: 15).toDouble()
             )
         }

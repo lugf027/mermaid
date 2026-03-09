@@ -52,12 +52,27 @@ object Rank {
     }
 
     /**
-     * 规范化排名：使最小 rank 为 0
+     * 规范化排名：反转 rank 使 source 节点 rank 最小，sink 节点 rank 最大，
+     * 然后偏移使最小 rank 为 0。
+     *
+     * longestPath 算法将 sink 设为 rank=0，source 获得最高 rank。
+     * 但标准 dagre 的语义是 source 在前（rank 小），target 在后（rank 大），
+     * 所以需要反转。
      */
     private fun normalizeRanks(graph: Graph) {
-        val minRank = graph.getNodes().minOfOrNull { it.rank } ?: return
+        val nodes = graph.getNodes()
+        if (nodes.isEmpty()) return
+
+        // 反转 rank：maxRank - rank，使 source 节点 rank 最小
+        val maxRank = nodes.maxOf { it.rank }
+        for (node in nodes) {
+            node.rank = maxRank - node.rank
+        }
+
+        // 确保最小 rank 为 0
+        val minRank = nodes.minOf { it.rank }
         if (minRank != 0) {
-            for (node in graph.getNodes()) {
+            for (node in nodes) {
                 node.rank -= minRank
             }
         }
