@@ -16,7 +16,19 @@ import io.lugf027.github.mermaid.core.themes.ThemeVariables
 /**
  * 流程图渲染器（统一渲染模式）- 对标 mermaid-js flowRenderer-v3-unified.ts
  *
- * 流程：db.getData() → LayoutData → dagre 布局 → SVG IR 构建
+ * 生成与 mermaid-js 完全一致的 SVG 结构：
+ * <svg>
+ *   <style>...</style>
+ *   <g>
+ *     <marker .../> ...
+ *     <g class="root">
+ *       <g class="clusters"/>
+ *       <g class="edgePaths">
+ *       <g class="edgeLabels">
+ *       <g class="nodes">
+ *     </g>
+ *   </g>
+ * </svg>
  */
 class FlowchartRenderer : DiagramRenderer {
 
@@ -33,49 +45,60 @@ class FlowchartRenderer : DiagramRenderer {
         val layout = LayoutRegistry.get("dagre") ?: DagreLayout()
         val laidOut = layout.layout(layoutData)
 
-        // 2. 构建 SVG
+        // 2. 构建 SVG — 精确匹配 mermaid-js 的 SVG 结构
         return buildSvg {
+            // mermaid-js SVG 属性顺序: id, width, xmlns, xmlns:xlink, class, style, viewBox, role, aria-*
             attr("id", diagramId)
+            attr("width", "100%")
+            attr("xmlns", "http://www.w3.org/2000/svg")
+            attr("xmlns:xlink", "http://www.w3.org/1999/xlink")
             attr("class", "flowchart")
-            attr("role", "graphics-document document")
-            attr("aria-roledescription", "flowchart-v2")
+            // style 和 viewBox 由 setupViewBox 设置（在 role/aria 之前占位）
 
-            // 生成样式 - style 直接在 SVG 根下（mermaid-js 风格）
+            // 生成样式 - style 直接在 SVG 根下
             val css = ThemeManager.generateStyles(themeVariables, "flowchart", diagramId)
             style(css)
 
-            // markers 在 defs 中
-            defs {
-                Markers.addMarkers(this, diagramId)
+            // 外层 <g> 包含 markers 和 root 组
+            val outerGroup = group {}
+
+            // markers 直接在外层 <g> 中（不在 <defs> 中）
+            Markers.addMarkers(outerGroup, diagramId, "flowchart-v2")
+
+            // root 组
+            val rootGroup = outerGroup.group {
+                addClass("root")
             }
 
-            // 主内容组
-            val contentGroup = group {
-                addClass("output")
-
-                // 渲染集群（子图）
-                val clusterGroup = group { addClass("clusters") }
-                for (node in laidOut.nodes) {
-                    if (node.isGroup) {
-                        val cluster = ClusterRenderer.render(node, themeVariables)
-                        clusterGroup.append(cluster)
-                    }
+            // 渲染集群（子图）
+            val clusterGroup = rootGroup.group { addClass("clusters") }
+            for (node in laidOut.nodes) {
+                if (node.isGroup) {
+                    val cluster = ClusterRenderer.render(node, themeVariables)
+                    clusterGroup.append(cluster)
                 }
+            }
 
-                // 渲染边
-                val edgeGroup = group { addClass("edges edgePath") }
-                for (edge in laidOut.edges) {
-                    val edgeSvg = EdgeRenderer.render(edge, diagramId, themeVariables)
-                    edgeGroup.append(edgeSvg)
-                }
+            // 渲染边路径（edgePaths 和 edgeLabels 分开）
+            val edgePathGroup = rootGroup.group { addClass("edgePaths") }
+            val edgeLabelGroup = rootGroup.group { addClass("edgeLabels") }
 
-                // 渲染节点
-                val nodeGroup = group { addClass("nodes") }
-                for (node in laidOut.nodes) {
-                    if (!node.isGroup) {
-                        val nodeSvg = ShapeRegistry.render(node, themeVariables)
-                        nodeGroup.append(nodeSvg)
-                    }
+            for (edge in laidOut.edges) {
+                // 渲染边路径
+                val edgePath = EdgeRenderer.renderPath(edge, diagramId, themeVariables)
+                edgePathGroup.append(edgePath)
+
+                // 渲染边标签
+                val edgeLabel = EdgeRenderer.renderLabel(edge, diagramId, themeVariables)
+                edgeLabelGroup.append(edgeLabel)
+            }
+
+            // 渲染节点
+            val nodeGroup = rootGroup.group { addClass("nodes") }
+            for (node in laidOut.nodes) {
+                if (!node.isGroup) {
+                    val nodeSvg = ShapeRegistry.render(node, themeVariables)
+                    nodeGroup.append(nodeSvg)
                 }
             }
 
@@ -95,10 +118,13 @@ class FlowchartRenderer : DiagramRenderer {
         }
     }
 
-    /** 根据布局结果设置 viewBox */
+    /** 根据布局结果设置 viewBox - 匹配 mermaid-js 的 viewBox 格式和属性顺序 */
     private fun setupViewBox(root: SvgRoot, data: LayoutData) {
         if (data.nodes.isEmpty()) {
+            root.attr("style", "max-width: 100px; background-color: white;")
             root.viewBox(0.0, 0.0, 100.0, 100.0)
+            root.attr("role", "graphics-document document")
+            root.attr("aria-roledescription", "flowchart-v2")
             return
         }
 
@@ -118,9 +144,10 @@ class FlowchartRenderer : DiagramRenderer {
         val width = maxX - minX + padding * 2
         val height = maxY - minY + padding * 2
 
-        root.viewBox(minX - padding, minY - padding, width, height)
-        root.attr("width", width)
-        root.attr("height", height)
+        // mermaid-js 属性顺序: ... class, style, viewBox, role, aria-roledescription
         root.attr("style", "max-width: ${SvgElement.formatNumber(width)}px; background-color: white;")
+        root.viewBox(minX - padding, minY - padding, width, height)
+        root.attr("role", "graphics-document document")
+        root.attr("aria-roledescription", "flowchart-v2")
     }
 }

@@ -20,6 +20,7 @@ class FlowchartDb : DiagramDB {
         var link: String? = null,
         var linkTarget: String? = null,
         var tooltip: String? = null,
+        var domId: String = "",  // mermaid-js 的 domId
     )
 
     /** 边定义 */
@@ -47,6 +48,14 @@ class FlowchartDb : DiagramDB {
     private val _classDefs = mutableMapOf<String, DiagramStyleClassDef>()
     private var _direction: String = "TB"
 
+    /**
+     * 全局顶点计数器 — 对齐 mermaid-js flowDb.ts 的 vertexCounter
+     *
+     * mermaid-js 中 vertexCounter 在每次 addVertex 调用时都递增（不管节点是否已存在），
+     * 但 domId 只在首次创建时设置（使用当时的 counter 值）。
+     */
+    private var vertexCounter: Int = 0
+
     private var diagramTitle: String = ""
     private var accTitle: String = ""
     private var accDescription: String = ""
@@ -60,6 +69,9 @@ class FlowchartDb : DiagramDB {
         diagramTitle = ""
         accTitle = ""
         accDescription = ""
+        // mermaid-js 的 clear() 不重置 vertexCounter
+        // 但 FlowchartDb 每次 new 出来时 vertexCounter 从 0 开始
+        vertexCounter = 0
     }
 
     override fun setDiagramTitle(title: String) { diagramTitle = title }
@@ -75,23 +87,29 @@ class FlowchartDb : DiagramDB {
     fun getEdges(): List<Edge> = _edges
     fun getSubGraphs(): List<SubGraph> = _subGraphs
 
-    /** 添加顶点 */
+    /** 添加顶点 — 对齐 mermaid-js flowDb.ts addVertex 行为 */
     fun addVertex(id: String, text: String? = null, type: String = "squareRect") {
         if (!_vertices.containsKey(id)) {
-            _vertices[id] = Vertex(id = id, text = text ?: id, type = type)
+            _vertices[id] = Vertex(
+                id = id,
+                text = text ?: id,
+                type = type,
+                domId = "flowchart-${id}-${vertexCounter}"
+            )
         } else {
             val v = _vertices[id]!!
             if (text != null) v.text = text
             if (type != "squareRect") v.type = type
         }
+        // mermaid-js: vertexCounter++ 在 if 块外部，每次 addVertex 调用都递增
+        vertexCounter++
     }
 
-    /** 添加边 */
+    /** 添加边 - 对标 mermaid-js addLink（不调用 addVertex，避免多余的 counter 递增） */
     fun addEdge(start: String, end: String, type: String = "arrow_point", text: String? = null, stroke: String = "normal", length: Int = 1) {
         _edges.add(Edge(start = start, end = end, type = type, text = text, stroke = stroke, length = length))
-        // 确保端点顶点存在
-        addVertex(start)
-        addVertex(end)
+        // 注意：mermaid-js 的 addLink 不会调用 addVertex
+        // 端点顶点在解析阶段通过 parseNodeDefinition 已经添加过了
     }
 
     /** 添加子图 */
@@ -110,7 +128,7 @@ class FlowchartDb : DiagramDB {
     fun getData(config: MermaidConfig): LayoutData {
         val flowConfig = config.flowchart
 
-        val layoutNodes = _vertices.entries.mapIndexed { idx, (id, vertex) ->
+        val layoutNodes = _vertices.entries.map { (id, vertex) ->
             LayoutNode(
                 id = id,
                 label = vertex.text ?: id,
@@ -120,7 +138,7 @@ class FlowchartDb : DiagramDB {
                 link = vertex.link,
                 linkTarget = vertex.linkTarget,
                 tooltip = vertex.tooltip,
-                domId = "flowchart-${id}-${idx}",
+                domId = vertex.domId,
                 padding = (flowConfig?.padding ?: 15).toDouble()
             )
         }

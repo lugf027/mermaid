@@ -64,6 +64,24 @@ object TextUtils {
         "Ru" to -0.4609375, "Vi" to -0.2890625, "Wy" to -0.2890625, "Wi" to -0.21875,
     )
 
+    /**
+     * 空格相关的 DOM 布局 kerning 表。
+     * 这些值在 DOM getBoundingClientRect 中体现，但 canvas measureText 不包含。
+     * 格式：key = "X " 表示字符 X 后接空格的调整，" X" 表示空格后接字符 X 的调整。
+     */
+    private val SPACE_KERNING_16PX: Map<String, Double> = mapOf(
+        // 空格后接字母的调整（DOM 特有）
+        " A" to -0.8828125,
+        " T" to -0.2890625,
+        " Y" to -0.2890625,
+        // 字母后接空格的调整（DOM 特有）
+        "A " to -0.8828125,
+        "L " to -0.59375,
+        "P " to -0.2890625,
+        "T " to -0.2890625,
+        "Y " to -0.2890625,
+    )
+
     /** trebuchet ms 16px 下的默认字符宽度 */
     private const val DEFAULT_CHAR_WIDTH_16PX = 8.0
 
@@ -144,6 +162,9 @@ object TextUtils {
      *
      * 使用字符级宽度查找表 + 字距调整（kerning）对照表，按 fontSize / 16 缩放。
      * 结果接近 Chromium canvas.measureText() 的精度。
+     *
+     * 注意：此方法模拟的是 canvas.measureText()，不包含 DOM 布局特有的空格 kerning。
+     * 如需模拟 DOM getBoundingClientRect()，请使用 [estimateDomTextWidth]。
      */
     fun estimateTextWidth(text: String, fontSize: Double = 16.0): Double {
         val scale = fontSize / 16.0
@@ -160,6 +181,43 @@ object TextUtils {
             val kern = KERNING_PAIRS_16PX[pair]
             if (kern != null) {
                 width += kern
+            }
+        }
+
+        return width * scale
+    }
+
+    /**
+     * 精确估算文本在 DOM 中的渲染宽度（模拟 getBoundingClientRect）
+     *
+     * mermaid-js 使用 DOM 的 getBoundingClientRect() 测量文本宽度，
+     * 该方法的结果会包含空格与字母之间的 kerning，而 canvas.measureText() 不包含。
+     * 此方法在 [estimateTextWidth] 基础上额外应用 [SPACE_KERNING_16PX]。
+     */
+    fun estimateDomTextWidth(text: String, fontSize: Double = 16.0): Double {
+        val scale = fontSize / 16.0
+        var width = 0.0
+
+        // 累加各字符宽度
+        for (ch in text) {
+            width += (TREBUCHET_MS_16PX_WIDTHS[ch] ?: DEFAULT_CHAR_WIDTH_16PX)
+        }
+
+        // 应用标准字距调整（canvas-level kerning）
+        for (i in 0 until text.length - 1) {
+            val pair = text.substring(i, i + 2)
+            val kern = KERNING_PAIRS_16PX[pair]
+            if (kern != null) {
+                width += kern
+            }
+        }
+
+        // 应用 DOM 特有的空格 kerning
+        for (i in 0 until text.length - 1) {
+            val pair = text.substring(i, i + 2)
+            val spaceKern = SPACE_KERNING_16PX[pair]
+            if (spaceKern != null) {
+                width += spaceKern
             }
         }
 

@@ -3,11 +3,55 @@ package io.lugf027.github.mermaid.core.rendering.shapes
 import io.lugf027.github.mermaid.core.layout.LayoutNode
 import io.lugf027.github.mermaid.core.rendering.svg.*
 import io.lugf027.github.mermaid.core.themes.ThemeVariables
+import io.lugf027.github.mermaid.core.util.TextUtils
 
 /**
- * 基础形状实现 - 对标 mermaid-js shapes/ 目录下的核心形状
+ * 基础形状实现 - 精确对标 mermaid-js shapes/ 目录下的核心形状
+ *
+ * mermaid-js 节点结构：
+ * <g class="node default" id="flowchart-A-0" transform="translate(x, y)">
+ *   <rect class="basic label-container" style="" x="..." y="..." width="..." height="..."/>
+ *   <g class="label" style="" transform="translate(-textWidth/2, -12)">
+ *     <rect/>
+ *     <foreignObject width="textWidth" height="24">
+ *       <div xmlns="http://www.w3.org/1999/xhtml"
+ *            style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;">
+ *         <span class="nodeLabel"><p>labelText</p></span>
+ *       </div>
+ *     </foreignObject>
+ *   </g>
+ * </g>
  */
 object BasicShapes {
+
+    /**
+     * 创建 mermaid-js 风格的标签组（foreignObject + HTML）
+     */
+    private fun createLabelGroup(g: SvgGroup, label: String, fontSize: Double = 16.0) {
+        val textWidth = TextUtils.estimateDomTextWidth(label, fontSize)
+        val textHeight = 24.0  // mermaid-js foreignObject 固定高度
+
+        val labelGroup = SvgGroup()
+        labelGroup.addClass("label")
+        labelGroup.attr("style", "")
+        labelGroup.translate(-textWidth / 2, -12.0)
+
+        // 空 rect（mermaid-js 的结构中有此元素）
+        labelGroup.children.add(SvgRect())
+
+        // foreignObject + HTML 内容
+        val fo = SvgForeignObject()
+        fo.attr("width", SvgElement.formatNumber(textWidth))
+        fo.attr("height", SvgElement.formatNumber(textHeight))
+
+        val htmlContent = "<div xmlns=\"http://www.w3.org/1999/xhtml\" " +
+            "style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\">" +
+            "<span class=\"nodeLabel\"><p>${label}</p></span></div>"
+        fo.children.add(SvgRawHtml(htmlContent))
+
+        labelGroup.append(fo)
+        g.append(labelGroup)
+    }
 
     /** 方形矩形 */
     fun squareRect(node: LayoutNode, tv: ThemeVariables): SvgGroup {
@@ -18,19 +62,16 @@ object BasicShapes {
 
         val w = node.width
         val h = node.height
-        g.rect(-w / 2, -h / 2, w, h) {
-            attr("fill", tv.nodeBkg)
-            attr("stroke", tv.nodeBorder)
-            attr("stroke-width", "1")
-        }
+
+        // rect 使用 class 而非内联 fill/stroke
+        val rect = SvgRect()
+        rect.addClass("basic").addClass("label-container")
+        rect.attr("style", "")
+        rect.bounds(-w / 2, -h / 2, w, h)
+        g.children.add(rect)
 
         if (!node.label.isNullOrEmpty()) {
-            g.text(node.label!!, 0.0, 5.0) {
-                attr("text-anchor", "middle")
-                attr("dominant-baseline", "middle")
-                attr("fill", tv.primaryTextColor)
-                addClass("nodeLabel")
-            }
+            createLabelGroup(g, node.label!!)
         }
 
         return g
@@ -46,20 +87,16 @@ object BasicShapes {
         val w = node.width
         val h = node.height
         val rx = 15.0
-        g.rect(-w / 2, -h / 2, w, h) {
-            rounded(rx)
-            attr("fill", tv.nodeBkg)
-            attr("stroke", tv.nodeBorder)
-            attr("stroke-width", "1")
-        }
+
+        val rect = SvgRect()
+        rect.addClass("basic").addClass("label-container")
+        rect.attr("style", "")
+        rect.bounds(-w / 2, -h / 2, w, h)
+        rect.rounded(rx)
+        g.children.add(rect)
 
         if (!node.label.isNullOrEmpty()) {
-            g.text(node.label!!, 0.0, 5.0) {
-                attr("text-anchor", "middle")
-                attr("dominant-baseline", "middle")
-                attr("fill", tv.primaryTextColor)
-                addClass("nodeLabel")
-            }
+            createLabelGroup(g, node.label!!)
         }
 
         return g
@@ -73,19 +110,14 @@ object BasicShapes {
         g.translate(node.x, node.y)
 
         val r = maxOf(node.width, node.height) / 2
-        g.circle(0.0, 0.0, r) {
-            attr("fill", tv.nodeBkg)
-            attr("stroke", tv.nodeBorder)
-            attr("stroke-width", "1")
-        }
+        val circle = SvgCircle()
+        circle.center(0.0, 0.0, r)
+        circle.addClass("basic").addClass("label-container")
+        circle.attr("style", "")
+        g.children.add(circle)
 
         if (!node.label.isNullOrEmpty()) {
-            g.text(node.label!!, 0.0, 5.0) {
-                attr("text-anchor", "middle")
-                attr("dominant-baseline", "middle")
-                attr("fill", tv.primaryTextColor)
-                addClass("nodeLabel")
-            }
+            createLabelGroup(g, node.label!!)
         }
 
         return g
@@ -99,41 +131,61 @@ object BasicShapes {
         g.translate(node.x, node.y)
 
         val r = maxOf(node.width, node.height) / 2
-        g.circle(0.0, 0.0, r) {
-            attr("fill", tv.nodeBkg); attr("stroke", tv.nodeBorder); attr("stroke-width", "1")
-        }
-        g.circle(0.0, 0.0, r - 5) {
-            attr("fill", tv.nodeBkg); attr("stroke", tv.nodeBorder); attr("stroke-width", "1")
-        }
+        val outer = SvgCircle()
+        outer.center(0.0, 0.0, r)
+        outer.addClass("basic").addClass("label-container")
+        outer.attr("style", "")
+        g.children.add(outer)
+
+        val inner = SvgCircle()
+        inner.center(0.0, 0.0, r - 5)
+        inner.addClass("basic").addClass("label-container")
+        inner.attr("style", "")
+        g.children.add(inner)
 
         if (!node.label.isNullOrEmpty()) {
-            g.text(node.label!!, 0.0, 5.0) {
-                attr("text-anchor", "middle"); attr("dominant-baseline", "middle")
-                attr("fill", tv.primaryTextColor); addClass("nodeLabel")
-            }
+            createLabelGroup(g, node.label!!)
         }
 
         return g
     }
 
-    /** 菱形 */
+    /**
+     * 菱形 - 精确匹配 mermaid-js insertPolygonShape
+     *
+     * mermaid-js 菱形格式：
+     * <polygon points="s/2,0 s,-s/2 s/2,-s 0,-s/2"
+     *          class="label-container" transform="translate(-s/2+0.5, s/2)"/>
+     * 其中 s = textWidth + node.padding + textHeight + node.padding
+     *
+     * 但从实际 SVG 观察，mermaid-js 使用:
+     * points="{halfDiag},0 {fullDiag},{-halfDiag} {halfDiag},{-fullDiag} 0,{-halfDiag}"
+     * transform="translate(-{halfDiag-0.5}, {halfDiag})"
+     */
     fun diamond(node: LayoutNode, tv: ThemeVariables): SvgGroup {
         val g = SvgGroup()
         g.addClass("node default")
         g.attr("id", node.domId ?: node.id)
         g.translate(node.x, node.y)
 
-        val w = node.width / 2
-        val h = node.height / 2
-        g.polygon(listOf(0.0 to -h, w to 0.0, 0.0 to h, -w to 0.0)) {
-            attr("fill", tv.nodeBkg); attr("stroke", tv.nodeBorder); attr("stroke-width", "1")
-        }
+        // mermaid-js 菱形的实际尺寸
+        val halfDiag = node.width / 2  // == node.height / 2 (菱形是正方形旋转)
+        val fullDiag = node.width  // == node.height
+
+        // 使用 mermaid-js insertPolygonShape 的坐标格式
+        val polygon = SvgPolygon()
+        polygon.attr("points",
+            "${SvgElement.formatNumber(halfDiag)},0 " +
+            "${SvgElement.formatNumber(fullDiag)},${SvgElement.formatNumber(-halfDiag)} " +
+            "${SvgElement.formatNumber(halfDiag)},${SvgElement.formatNumber(-fullDiag)} " +
+            "0,${SvgElement.formatNumber(-halfDiag)}"
+        )
+        polygon.addClass("label-container")
+        polygon.translate(-halfDiag + 0.5, halfDiag)
+        g.children.add(polygon)
 
         if (!node.label.isNullOrEmpty()) {
-            g.text(node.label!!, 0.0, 5.0) {
-                attr("text-anchor", "middle"); attr("dominant-baseline", "middle")
-                attr("fill", tv.primaryTextColor); addClass("nodeLabel")
-            }
+            createLabelGroup(g, node.label!!)
         }
 
         return g
@@ -149,18 +201,18 @@ object BasicShapes {
         val w = node.width / 2
         val h = node.height / 2
         val offset = w * 0.2
-        g.polygon(listOf(
+
+        val polygon = SvgPolygon()
+        polygon.points(listOf(
             -w to 0.0, -w + offset to -h, w - offset to -h,
             w to 0.0, w - offset to h, -w + offset to h
-        )) {
-            attr("fill", tv.nodeBkg); attr("stroke", tv.nodeBorder); attr("stroke-width", "1")
-        }
+        ))
+        polygon.addClass("basic").addClass("label-container")
+        polygon.attr("style", "")
+        g.children.add(polygon)
 
         if (!node.label.isNullOrEmpty()) {
-            g.text(node.label!!, 0.0, 5.0) {
-                attr("text-anchor", "middle"); attr("dominant-baseline", "middle")
-                attr("fill", tv.primaryTextColor); addClass("nodeLabel")
-            }
+            createLabelGroup(g, node.label!!)
         }
 
         return g
@@ -176,16 +228,16 @@ object BasicShapes {
         val w = node.width
         val h = node.height
         val r = h / 2
-        g.rect(-w / 2, -h / 2, w, h) {
-            rounded(r)
-            attr("fill", tv.nodeBkg); attr("stroke", tv.nodeBorder); attr("stroke-width", "1")
-        }
+
+        val rect = SvgRect()
+        rect.bounds(-w / 2, -h / 2, w, h)
+        rect.rounded(r)
+        rect.addClass("basic").addClass("label-container")
+        rect.attr("style", "")
+        g.children.add(rect)
 
         if (!node.label.isNullOrEmpty()) {
-            g.text(node.label!!, 0.0, 5.0) {
-                attr("text-anchor", "middle"); attr("dominant-baseline", "middle")
-                attr("fill", tv.primaryTextColor); addClass("nodeLabel")
-            }
+            createLabelGroup(g, node.label!!)
         }
 
         return g
@@ -202,7 +254,6 @@ object BasicShapes {
         val h = node.height
         val ry = 10.0
 
-        // 使用路径绘制圆柱体
         val pathBuilder = SvgPathBuilder()
         pathBuilder.moveTo(-w / 2, -h / 2 + ry)
         pathBuilder.arcTo(w / 2, ry, 0.0, false, true, w / 2, -h / 2 + ry)
@@ -210,20 +261,21 @@ object BasicShapes {
         pathBuilder.arcTo(w / 2, ry, 0.0, false, true, -w / 2, h / 2 - ry)
         pathBuilder.closePath()
 
-        g.path(pathBuilder.build()) {
-            attr("fill", tv.nodeBkg); attr("stroke", tv.nodeBorder); attr("stroke-width", "1")
-        }
+        val path = SvgPath()
+        path.d(pathBuilder.build())
+        path.addClass("basic").addClass("label-container")
+        path.attr("style", "")
+        g.children.add(path)
 
         // 顶部椭圆
-        g.ellipse(0.0, -h / 2 + ry, w / 2, ry) {
-            attr("fill", tv.nodeBkg); attr("stroke", tv.nodeBorder); attr("stroke-width", "1")
-        }
+        val ellipse = SvgEllipse()
+        ellipse.center(0.0, -h / 2 + ry, w / 2, ry)
+        ellipse.addClass("basic").addClass("label-container")
+        ellipse.attr("style", "")
+        g.children.add(ellipse)
 
         if (!node.label.isNullOrEmpty()) {
-            g.text(node.label!!, 0.0, 5.0) {
-                attr("text-anchor", "middle"); attr("dominant-baseline", "middle")
-                attr("fill", tv.primaryTextColor); addClass("nodeLabel")
-            }
+            createLabelGroup(g, node.label!!)
         }
 
         return g
@@ -236,15 +288,14 @@ object BasicShapes {
         g.attr("id", node.domId ?: node.id)
         g.translate(node.x, node.y)
 
-        g.ellipse(0.0, 0.0, node.width / 2, node.height / 2) {
-            attr("fill", tv.nodeBkg); attr("stroke", tv.nodeBorder); attr("stroke-width", "1")
-        }
+        val ellipse = SvgEllipse()
+        ellipse.center(0.0, 0.0, node.width / 2, node.height / 2)
+        ellipse.addClass("basic").addClass("label-container")
+        ellipse.attr("style", "")
+        g.children.add(ellipse)
 
         if (!node.label.isNullOrEmpty()) {
-            g.text(node.label!!, 0.0, 5.0) {
-                attr("text-anchor", "middle"); attr("dominant-baseline", "middle")
-                attr("fill", tv.primaryTextColor); addClass("nodeLabel")
-            }
+            createLabelGroup(g, node.label!!)
         }
 
         return g

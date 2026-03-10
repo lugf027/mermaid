@@ -3,127 +3,159 @@ package io.lugf027.github.mermaid.core.rendering.markers
 import io.lugf027.github.mermaid.core.rendering.svg.*
 
 /**
- * 箭头标记定义 - 对标 mermaid-js markers.js
+ * 箭头标记定义 - 精确对标 mermaid-js markers.js
  *
- * 实现 SVG <marker> 元素，用于边的箭头渲染。
+ * mermaid-js 的 markers 直接放在 <g> 中（不是 <defs>），
+ * ID 格式为 {diagramId}_{diagramType}-{markerType}{End/Start}。
  */
 object Markers {
 
     /**
-     * 创建所有标准标记，添加到 <defs> 中
+     * 创建所有标准标记，添加到指定的父组中
+     *
+     * @param parent 父元素（通常是 markers 所在的 <g>）
+     * @param diagramId SVG 的 id（如 "my-svg"）
+     * @param diagramType 图表类型标识（如 "flowchart-v2"）
      */
-    fun addMarkers(defs: SvgDefs, id: String) {
-        addArrowHead(defs, id)
-        addArrowHeadFilled(defs, id)
-        addCircleMarker(defs, id)
-        addCrossMarker(defs, id)
-        addDiamondMarker(defs, id)
-        addArrowPoint(defs, id)
+    fun addMarkers(parent: SvgElement, diagramId: String, diagramType: String = "flowchart-v2") {
+        val prefix = "${diagramId}_${diagramType}"
+
+        // pointEnd marker
+        addPointEnd(parent, prefix, diagramType)
+        // pointStart marker
+        addPointStart(parent, prefix, diagramType)
+        // circleEnd marker
+        addCircleEnd(parent, prefix, diagramType)
+        // circleStart marker
+        addCircleStart(parent, prefix, diagramType)
+        // crossEnd marker
+        addCrossEnd(parent, prefix, diagramType)
+        // crossStart marker
+        addCrossStart(parent, prefix, diagramType)
     }
 
-    /** 标准箭头（空心） */
-    private fun addArrowHead(defs: SvgDefs, id: String) {
-        defs.marker {
-            setup(
-                id = "arrowhead-${id}",
-                viewBox = "0 0 10 10",
-                refX = 9.0, refY = 5.0,
-                markerWidth = 6.0, markerHeight = 8.0,
-                orient = "auto"
-            )
-            children.add(SvgPath().d("M 0 0 L 10 5 L 0 10 z").apply {
-                addClass("arrowMarkerPath")
-                attr("style", "stroke-width: 1; stroke-dasharray: 1, 0;")
-            })
-        }
+    /** pointEnd - 标准箭头（末端） */
+    private fun addPointEnd(parent: SvgElement, prefix: String, diagramType: String) {
+        val marker = SvgMarker()
+        // mermaid-js 属性顺序: id, class, viewBox, refX, refY, markerUnits, markerWidth, markerHeight, orient
+        marker.attr("id", "${prefix}-pointEnd")
+        marker.addClass("marker").addClass(diagramType)
+        marker.attr("viewBox", "0 0 10 10")
+        marker.attr("refX", "5")
+        marker.attr("refY", "5")
+        marker.attr("markerUnits", "userSpaceOnUse")
+        marker.attr("markerWidth", "8")
+        marker.attr("markerHeight", "8")
+        marker.attr("orient", "auto")
+        marker.children.add(SvgPath().d("M 0 0 L 10 5 L 0 10 z").apply {
+            addClass("arrowMarkerPath")
+            attr("style", "stroke-width: 1; stroke-dasharray: 1, 0;")
+        })
+        parent.append(marker)
     }
 
-    /** 实心箭头 */
-    private fun addArrowHeadFilled(defs: SvgDefs, id: String) {
-        defs.marker {
-            setup(
-                id = "arrowhead-filled-${id}",
-                viewBox = "0 0 10 10",
-                refX = 9.0, refY = 5.0,
-                markerWidth = 6.0, markerHeight = 8.0,
-                orient = "auto"
-            )
-            children.add(SvgPath().d("M 0 0 L 10 5 L 0 10 z").apply {
-                addClass("arrowMarkerPath")
-            })
-        }
+    /** pointStart - 标准箭头（起始端） */
+    private fun addPointStart(parent: SvgElement, prefix: String, diagramType: String) {
+        val marker = SvgMarker()
+        marker.attr("id", "${prefix}-pointStart")
+        marker.addClass("marker").addClass(diagramType)
+        marker.attr("viewBox", "0 0 10 10")
+        marker.attr("refX", "4.5")
+        marker.attr("refY", "5")
+        marker.attr("markerUnits", "userSpaceOnUse")
+        marker.attr("markerWidth", "8")
+        marker.attr("markerHeight", "8")
+        marker.attr("orient", "auto")
+        marker.children.add(SvgPath().d("M 0 5 L 10 10 L 10 0 z").apply {
+            addClass("arrowMarkerPath")
+            attr("style", "stroke-width: 1; stroke-dasharray: 1, 0;")
+        })
+        parent.append(marker)
     }
 
-    /** 圆形标记 */
-    private fun addCircleMarker(defs: SvgDefs, id: String) {
-        defs.marker {
-            setup(
-                id = "circle-${id}",
-                viewBox = "0 0 10 10",
-                refX = 5.0, refY = 5.0,
-                markerWidth = 5.0, markerHeight = 5.0,
-                orient = "auto"
-            )
-            children.add(SvgCircle().center(5.0, 5.0, 4.0).apply {
-                addClass("arrowMarkerPath")
-                attr("style", "stroke-width: 1; stroke-dasharray: 1, 0;")
-            })
-        }
+    /** circleEnd - 圆形标记（末端） */
+    private fun addCircleEnd(parent: SvgElement, prefix: String, diagramType: String) {
+        val marker = SvgMarker()
+        marker.attr("id", "${prefix}-circleEnd")
+        marker.addClass("marker").addClass(diagramType)
+        marker.attr("viewBox", "0 0 10 10")
+        marker.attr("refX", "11")
+        marker.attr("refY", "5")
+        marker.attr("markerUnits", "userSpaceOnUse")
+        marker.attr("markerWidth", "11")
+        marker.attr("markerHeight", "11")
+        marker.attr("orient", "auto")
+        marker.children.add(SvgCircle().center(5.0, 5.0, 5.0).apply {
+            addClass("arrowMarkerPath")
+            attr("style", "stroke-width: 1; stroke-dasharray: 1, 0;")
+        })
+        parent.append(marker)
     }
 
-    /** 十字标记 */
-    private fun addCrossMarker(defs: SvgDefs, id: String) {
-        defs.marker {
-            setup(
-                id = "cross-${id}",
-                viewBox = "0 0 10 10",
-                refX = 5.0, refY = 5.0,
-                markerWidth = 5.0, markerHeight = 5.0,
-                orient = "auto"
-            )
-            children.add(SvgPath().d("M 0 0 L 10 10 M 10 0 L 0 10").apply {
-                addClass("arrowMarkerPath")
-                attr("style", "stroke-width: 2; stroke-dasharray: 1, 0;")
-            })
-        }
+    /** circleStart - 圆形标记（起始端） */
+    private fun addCircleStart(parent: SvgElement, prefix: String, diagramType: String) {
+        val marker = SvgMarker()
+        marker.attr("id", "${prefix}-circleStart")
+        marker.addClass("marker").addClass(diagramType)
+        marker.attr("viewBox", "0 0 10 10")
+        marker.attr("refX", "-1")
+        marker.attr("refY", "5")
+        marker.attr("markerUnits", "userSpaceOnUse")
+        marker.attr("markerWidth", "11")
+        marker.attr("markerHeight", "11")
+        marker.attr("orient", "auto")
+        marker.children.add(SvgCircle().center(5.0, 5.0, 5.0).apply {
+            addClass("arrowMarkerPath")
+            attr("style", "stroke-width: 1; stroke-dasharray: 1, 0;")
+        })
+        parent.append(marker)
     }
 
-    /** 菱形标记（聚合） */
-    private fun addDiamondMarker(defs: SvgDefs, id: String) {
-        defs.marker {
-            setup(
-                id = "aggregation-${id}",
-                viewBox = "0 0 20 10",
-                refX = 18.0, refY = 5.0,
-                markerWidth = 10.0, markerHeight = 10.0,
-                orient = "auto"
-            )
-            children.add(SvgPath().d("M 0 5 L 10 0 L 20 5 L 10 10 z").apply {
-                addClass("arrowMarkerPath")
-            })
-        }
+    /** crossEnd - 十字标记（末端） */
+    private fun addCrossEnd(parent: SvgElement, prefix: String, diagramType: String) {
+        val marker = SvgMarker()
+        marker.attr("id", "${prefix}-crossEnd")
+        marker.addClass("marker").addClass("cross").addClass(diagramType)
+        marker.attr("viewBox", "0 0 11 11")
+        marker.attr("refX", "12")
+        marker.attr("refY", "5.2")
+        marker.attr("markerUnits", "userSpaceOnUse")
+        marker.attr("markerWidth", "11")
+        marker.attr("markerHeight", "11")
+        marker.attr("orient", "auto")
+        marker.children.add(SvgPath().d("M 1,1 l 9,9 M 10,1 l -9,9").apply {
+            addClass("arrowMarkerPath")
+            attr("style", "stroke-width: 2; stroke-dasharray: 1, 0;")
+        })
+        parent.append(marker)
     }
 
-    /** 箭头点标记 */
-    private fun addArrowPoint(defs: SvgDefs, id: String) {
-        defs.marker {
-            setup(
-                id = "arrow-point-${id}",
-                viewBox = "0 0 12 12",
-                refX = 9.0, refY = 6.0,
-                markerWidth = 12.0, markerHeight = 12.0,
-                orient = "auto"
-            )
-            children.add(SvgPath().d("M 0 0 L 12 6 L 0 12 z").apply {
-                addClass("arrowMarkerPath")
-            })
-        }
+    /** crossStart - 十字标记（起始端） */
+    private fun addCrossStart(parent: SvgElement, prefix: String, diagramType: String) {
+        val marker = SvgMarker()
+        marker.attr("id", "${prefix}-crossStart")
+        marker.addClass("marker").addClass("cross").addClass(diagramType)
+        marker.attr("viewBox", "0 0 11 11")
+        marker.attr("refX", "-1")
+        marker.attr("refY", "5.2")
+        marker.attr("markerUnits", "userSpaceOnUse")
+        marker.attr("markerWidth", "11")
+        marker.attr("markerHeight", "11")
+        marker.attr("orient", "auto")
+        marker.children.add(SvgPath().d("M 1,1 l 9,9 M 10,1 l -9,9").apply {
+            addClass("arrowMarkerPath")
+            attr("style", "stroke-width: 2; stroke-dasharray: 1, 0;")
+        })
+        parent.append(marker)
     }
 
     /**
      * 获取标记 URL 引用
+     * @param markerType 标记类型（如 "pointEnd"）
+     * @param diagramId SVG id
+     * @param diagramType 图表类型标识（如 "flowchart-v2"）
      */
-    fun markerUrl(markerId: String, diagramId: String): String {
-        return "url(#${markerId}-${diagramId})"
+    fun markerUrl(markerType: String, diagramId: String, diagramType: String = "flowchart-v2"): String {
+        return "url(#${diagramId}_${diagramType}-${markerType})"
     }
 }

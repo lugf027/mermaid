@@ -16,9 +16,7 @@ object SvgSerializer {
      */
     fun serialize(root: SvgElement, indent: Boolean = false): String {
         val sb = StringBuilder()
-        if (root is SvgRoot) {
-            sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        }
+        // mermaid-js 不输出 XML 声明
         serializeElement(root, sb, if (indent) 0 else -1)
         return sb.toString()
     }
@@ -33,6 +31,12 @@ object SvgSerializer {
     }
 
     private fun serializeElement(element: SvgElement, sb: StringBuilder, indentLevel: Int) {
+        // 原始 HTML 节点直接输出内容
+        if (element is SvgRawHtml) {
+            sb.append(element.rawContent)
+            return
+        }
+
         val doIndent = indentLevel >= 0
         val prefix = if (doIndent) "  ".repeat(indentLevel) else ""
         val tag = element.tagName
@@ -42,7 +46,8 @@ object SvgSerializer {
             element is SvgTitle || element is SvgDesc
         val isStyleElement = element is SvgStyle
         val isRootElement = element is SvgRoot
-        val isSelfClosing = element.children.isEmpty() && !isTextElement && !isStyleElement && !isRootElement
+        val isForeignObject = element is SvgForeignObject
+        val isSelfClosing = element.children.isEmpty() && !isTextElement && !isStyleElement && !isRootElement && !isForeignObject
 
         if (doIndent) sb.append(prefix)
 
@@ -70,7 +75,6 @@ object SvgSerializer {
                     sb.append(element.cssContent)
                     if (doIndent) sb.append("\n")
                 }
-                // style 也可能有子元素
                 for (child in element.children) {
                     serializeElement(child, sb, if (doIndent) indentLevel + 1 else -1)
                 }
@@ -80,7 +84,7 @@ object SvgSerializer {
             is SvgText -> {
                 sb.append(escapeXmlContent(element.textContent))
                 for (child in element.children) {
-                    serializeElement(child, sb, -1) // text children inline
+                    serializeElement(child, sb, -1)
                 }
             }
 
@@ -97,6 +101,13 @@ object SvgSerializer {
 
             is SvgDesc -> {
                 sb.append(escapeXmlContent(element.textContent))
+            }
+
+            is SvgForeignObject -> {
+                // foreignObject 内的子元素（HTML 内容）直接内联输出，不加缩进
+                for (child in element.children) {
+                    serializeElement(child, sb, -1)
+                }
             }
 
             else -> {

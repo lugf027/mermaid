@@ -79,14 +79,13 @@ class SvgPathBuilder {
     override fun toString(): String = build()
 
     companion object {
-        /** 格式化数值 */
+        /** 格式化数值，保留完整 double 精度以匹配 mermaid-js */
         private fun fmt(value: Double): String {
             return if (value == value.toLong().toDouble()) {
                 value.toLong().toString()
             } else {
-                // KMP 兼容：手动控制精度
-                val rounded = kotlin.math.round(value * 10000) / 10000.0
-                val str = rounded.toString()
+                // 保留完整精度，不截断小数位
+                val str = value.toString()
                 if (str.contains('.')) {
                     str.trimEnd('0').trimEnd('.')
                 } else {

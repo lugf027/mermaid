@@ -3,6 +3,7 @@ package io.lugf027.github.mermaid.core.rendering.shapes
 import io.lugf027.github.mermaid.core.layout.LayoutNode
 import io.lugf027.github.mermaid.core.rendering.svg.*
 import io.lugf027.github.mermaid.core.themes.ThemeVariables
+import io.lugf027.github.mermaid.core.util.TextUtils
 
 /**
  * 特殊形状实现 - 对标 mermaid-js shapes/ 目录下的特殊形状
@@ -162,15 +163,31 @@ object SpecialShapes {
         return g
     }
 
-    /** 通用标签添加 */
+    /** 通用标签添加 — 使用 foreignObject + HTML 结构匹配 mermaid-js */
     private fun addLabel(g: SvgGroup, node: LayoutNode, tv: ThemeVariables) {
         if (!node.label.isNullOrEmpty()) {
-            g.text(node.label!!, 0.0, 5.0) {
-                attr("text-anchor", "middle")
-                attr("dominant-baseline", "middle")
-                attr("fill", tv.primaryTextColor)
-                addClass("nodeLabel")
-            }
+            val label = node.label!!
+            val textWidth = TextUtils.estimateDomTextWidth(label, 16.0)
+            val textHeight = 24.0
+
+            val labelGroup = SvgGroup()
+            labelGroup.addClass("label")
+            labelGroup.attr("style", "")
+            labelGroup.translate(-textWidth / 2, -12.0)
+
+            labelGroup.children.add(SvgRect())
+
+            val fo = SvgForeignObject()
+            fo.attr("width", SvgElement.formatNumber(textWidth))
+            fo.attr("height", SvgElement.formatNumber(textHeight))
+
+            val htmlContent = "<div xmlns=\"http://www.w3.org/1999/xhtml\" " +
+                "style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\">" +
+                "<span class=\"nodeLabel\"><p>${label}</p></span></div>"
+            fo.children.add(SvgRawHtml(htmlContent))
+
+            labelGroup.append(fo)
+            g.append(labelGroup)
         }
     }
 }

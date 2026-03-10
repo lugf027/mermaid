@@ -37,7 +37,7 @@ data class ThemeVariables(
     val noteBorderColor: String = "#aaaa33",
 
     // 字体
-    val fontFamily: String = "\"trebuchet ms\", verdana, arial, sans-serif",
+    val fontFamily: String = "\"trebuchet ms\",verdana,arial,sans-serif",
     val fontSize: String = "16px",
 
     // 饼图颜色 (pie1 - pie12)

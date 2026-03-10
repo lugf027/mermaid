@@ -195,3 +195,24 @@ fun SvgElement.clipPath(block: SvgClipPath.() -> Unit = {}): SvgClipPath {
     children.add(cp)
     return cp
 }
+
+/** 添加 <foreignObject> */
+fun SvgElement.foreignObject(
+    width: Double, height: Double,
+    block: SvgForeignObject.() -> Unit = {}
+): SvgForeignObject {
+    val fo = SvgForeignObject().apply {
+        attr("width", width)
+        attr("height", height)
+        block()
+    }
+    children.add(fo)
+    return fo
+}
+
+/** 添加原始 HTML 内容（用于 foreignObject 内） */
+fun SvgElement.rawHtml(content: String): SvgRawHtml {
+    val raw = SvgRawHtml(content)
+    children.add(raw)
+    return raw
+}

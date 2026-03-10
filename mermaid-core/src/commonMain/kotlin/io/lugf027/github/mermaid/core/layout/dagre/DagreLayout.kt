@@ -53,7 +53,7 @@ class DagreLayout : LayoutAlgorithm {
             val targetNode = graph.getNode(edge.end) ?: continue
 
             // 边标签宽度 = 文本宽度（mermaid-js 在 16px 字体下测量标签宽度）
-            val labelWidth = TextUtils.estimateTextWidth(edge.label!!, 16.0)
+            val labelWidth = TextUtils.estimateDomTextWidth(edge.label!!, 16.0)
 
             // 确定源和目标的 rank（取较小的 rank 作为间隙起始）
             val minRank = minOf(sourceNode.rank, targetNode.rank)
@@ -87,7 +87,7 @@ class DagreLayout : LayoutAlgorithm {
 
             // 估算节点尺寸 - 对齐 mermaid-js 的尺寸计算
             val labelText = node.label ?: node.id
-            val labelWidth = TextUtils.estimateTextWidth(labelText)
+            val labelWidth = TextUtils.estimateDomTextWidth(labelText)
             val labelHeight = 24.0  // mermaid-js 单行文本 foreignObject 高度固定 24px
 
             // mermaid-js 矩形节点: padding 每边 30，高度 = labelHeight + 30 = 54

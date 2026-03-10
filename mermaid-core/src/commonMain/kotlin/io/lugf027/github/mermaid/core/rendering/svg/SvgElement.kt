@@ -7,8 +7,8 @@ package io.lugf027.github.mermaid.core.rendering.svg
  * 每个节点持有 attributes Map 和 children List，支持链式 API。
  */
 sealed class SvgElement {
-    /** 元素属性 */
-    val attributes: MutableMap<String, String> = mutableMapOf()
+    /** 元素属性（使用 LinkedHashMap 保持插入顺序） */
+    val attributes: MutableMap<String, String> = linkedMapOf()
 
     /** 子元素列表 */
     val children: MutableList<SvgElement> = mutableListOf()
@@ -67,14 +67,13 @@ sealed class SvgElement {
     }
 
     companion object {
-        /** 格式化数值，避免不必要的小数 */
+        /** 格式化数值，保留完整 double 精度以匹配 mermaid-js（Chromium 的数值序列化） */
         fun formatNumber(value: Double): String {
             return if (value == value.toLong().toDouble()) {
                 value.toLong().toString()
             } else {
-                // 保留最多4位小数（KMP 兼容方式）
-                val rounded = kotlin.math.round(value * 10000) / 10000.0
-                val str = rounded.toString()
+                // 保留完整精度，不截断小数位
+                val str = value.toString()
                 // 移除尾部多余的零
                 if (str.contains('.')) {
                     str.trimEnd('0').trimEnd('.')
@@ -90,10 +89,8 @@ sealed class SvgElement {
 class SvgRoot : SvgElement() {
     override val tagName = "svg"
 
-    init {
-        attr("xmlns", "http://www.w3.org/2000/svg")
-        attr("xmlns:xlink", "http://www.w3.org/1999/xlink")
-    }
+    // mermaid-js SVG 根属性顺序: id, width, xmlns, xmlns:xlink, class, style, viewBox, role, ...
+    // xmlns 不在 init 中设置，由 FlowchartRenderer 控制完整顺序
 
     /** 设置 viewBox */
     fun viewBox(x: Double, y: Double, width: Double, height: Double): SvgRoot {
@@ -252,4 +249,13 @@ class SvgTitle(var textContent: String = "") : SvgElement() {
 /** SVG desc <desc> */
 class SvgDesc(var textContent: String = "") : SvgElement() {
     override val tagName = "desc"
+}
+
+/**
+ * 原始 HTML 内容节点 - 用于在 foreignObject 内输出 HTML
+ *
+ * 不走 SVG 元素的标准序列化流程，直接输出 rawContent 字符串。
+ */
+class SvgRawHtml(var rawContent: String = "") : SvgElement() {
+    override val tagName = "__raw_html__"
 }
