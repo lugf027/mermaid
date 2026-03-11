@@ -54,6 +54,13 @@ class Graph(
         var labelRank: Int = -1,
         /** 是否是反转的边 */
         var reversed: Boolean = false,
+        /**
+         * 标记 edge 是否有标签坐标（x, y 已由 normalize.undo 设置）。
+         * 精确对标 JS 的 Object.prototype.hasOwnProperty.call(edge, 'x') 检查。
+         * dagre 中只有带标签的边（经过 normalize.undo 后）才有 x/y 属性，
+         * 无标签边的 x/y 始终为默认值 0.0，但在 JS 中属性不存在。
+         */
+        var hasLabelCoords: Boolean = false,
         val extra: MutableMap<String, Any> = mutableMapOf()
     )
 
@@ -240,5 +247,28 @@ class Graph(
      */
     fun sinks(): List<String> {
         return nodeIds().filter { outEdgesOf(it).isEmpty() }
+    }
+
+    /**
+     * 返回节点的所有邻居（前驱 + 后继的并集）— 对标 graphlib Graph.neighbors(v)
+     *
+     * 用于 network simplex 的树遍历（无向图语义）。
+     */
+    fun neighbors(nodeId: String): List<String> {
+        val preds = predecessors(nodeId)
+        val sucs = successors(nodeId)
+        return (preds + sucs).distinct()
+    }
+
+    /**
+     * 返回与节点关联的所有边（入边 + 出边）— 对标 graphlib Graph.nodeEdges(v)
+     *
+     * 返回的 EdgeData 保留原始的 source/target，调用方可以通过比较 source == nodeId
+     * 判断是出边还是入边。
+     */
+    fun nodeEdges(nodeId: String): List<EdgeData> {
+        val inList = inEdgesOf(nodeId)
+        val outList = outEdgesOf(nodeId)
+        return inList + outList
     }
 }

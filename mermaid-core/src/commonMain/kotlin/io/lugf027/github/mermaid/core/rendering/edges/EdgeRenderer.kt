@@ -30,8 +30,24 @@ object EdgeRenderer {
         val path = SvgPath()
         path.d(pathData)
         path.attr("id", edgeId)
-        path.addClass("edge-thickness-normal")
-        path.addClass("edge-pattern-solid")
+
+        // 边线粗细 CSS 类 — 对标 mermaid-js edges.js switch(edge.thickness)
+        // mermaid-js 中 thickness = rawEdge.stroke: normal/thick/dotted/invisible
+        val thicknessClass = when (edge.stroke) {
+            "thick" -> "edge-thickness-thick"
+            "invisible" -> "edge-thickness-invisible"
+            else -> "edge-thickness-normal"  // normal, dotted 等都用 normal
+        }
+        // 边线样式 CSS 类 — 对标 mermaid-js edges.js switch(edge.pattern)
+        // mermaid-js 中 pattern = rawEdge.stroke: normal/thick 走 default=solid, dotted 走 dotted
+        val patternClass = when (edge.stroke) {
+            "dotted" -> "edge-pattern-dotted"
+            else -> "edge-pattern-solid"  // normal, thick 等都用 solid
+        }
+        path.addClass(thicknessClass)
+        path.addClass(patternClass)
+        // 第二组 CSS 类固定 — 对标 flowDb.ts 中 classes 字段始终为
+        // 'edge-thickness-normal edge-pattern-solid flowchart-link'
         path.addClass("edge-thickness-normal")
         path.addClass("edge-pattern-solid")
         path.addClass("flowchart-link")
@@ -44,9 +60,16 @@ object EdgeRenderer {
         val pointsJson = buildPointsJson(edge)
         path.attr("data-points", base64Encode(pointsJson))
 
-        // 箭头标记
-        if (edge.arrowTypeEnd != null) {
-            path.attr("marker-end", "url(#${diagramId}_flowchart-v2-pointEnd)")
+        // 箭头标记 — 对标 mermaid-js edgeMarker.ts addEdgeMarkers
+        // arrowType -> marker type 映射: arrow_point->point, arrow_cross->cross, arrow_circle->circle
+        // "none" 或 null -> 不设置 marker
+        val endMarkerType = arrowTypeToMarkerType(edge.arrowTypeEnd)
+        if (endMarkerType != null) {
+            path.attr("marker-end", "url(#${diagramId}_flowchart-v2-${endMarkerType}End)")
+        }
+        val startMarkerType = arrowTypeToMarkerType(edge.arrowTypeStart)
+        if (startMarkerType != null) {
+            path.attr("marker-start", "url(#${diagramId}_flowchart-v2-${startMarkerType}Start)")
         }
 
         return path
@@ -135,6 +158,27 @@ object EdgeRenderer {
         val label = renderLabel(edge, diagramId, themeVariables)
         g.append(label)
         return g
+    }
+
+    /**
+     * 将 arrowType 映射为 marker 类型名 — 对标 mermaid-js edgeMarker.ts arrowTypesMap
+     *
+     * 返回 null 表示不添加 marker（如 "none" 或 null）
+     */
+    private fun arrowTypeToMarkerType(arrowType: String?): String? {
+        if (arrowType == null || arrowType == "none") return null
+        return when (arrowType) {
+            "arrow_point" -> "point"
+            "arrow_cross" -> "cross"
+            "arrow_circle" -> "circle"
+            "arrow_barb" -> "barb"
+            "aggregation" -> "aggregation"
+            "extension" -> "extension"
+            "composition" -> "composition"
+            "dependency" -> "dependency"
+            "lollipop" -> "lollipop"
+            else -> null  // 未知类型不添加 marker
+        }
     }
 
     /**

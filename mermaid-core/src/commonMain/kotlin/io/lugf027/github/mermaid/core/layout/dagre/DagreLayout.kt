@@ -42,8 +42,8 @@ class DagreLayout : LayoutAlgorithm {
         // 3. acyclic.run: 反转反向边使图变成 DAG
         Acyclic.run(graph)
 
-        // 4. rank: 分层
-        Rank.longestPath(graph)
+        // 4. rank: 分层（使用 network simplex — 对标 JS dagre 默认策略）
+        Rank.networkSimplex(graph)
 
         // 5. injectEdgeLabelProxies: 为带标签的边创建临时代理节点
         injectEdgeLabelProxies(graph)
@@ -269,7 +269,7 @@ class DagreLayout : LayoutAlgorithm {
      */
     private fun fixupEdgeLabelCoords(graph: Graph) {
         for (edge in graph.edges()) {
-            if (edge.x != 0.0 || edge.y != 0.0) {
+            if (edge.hasLabelCoords) {
                 val lp = edge.labelpos.lowercase()
                 if (lp == "l" || lp == "r") {
                     edge.width -= edge.labeloffset
@@ -368,7 +368,7 @@ class DagreLayout : LayoutAlgorithm {
         }
 
         for (edge in graph.edges()) {
-            if (edge.x != 0.0 || edge.y != 0.0) {
+            if (edge.hasLabelCoords) {
                 getExtremes(edge.x, edge.y, edge.width, edge.height)
             }
         }
@@ -385,7 +385,8 @@ class DagreLayout : LayoutAlgorithm {
             for (i in edge.points.indices) {
                 edge.points[i] = Point(edge.points[i].x - minX, edge.points[i].y - minY)
             }
-            if (edge.x != 0.0 || edge.y != 0.0) {
+            // 对标 JS: 分别独立检查 hasOwnProperty('x') 和 hasOwnProperty('y')
+            if (edge.hasLabelCoords) {
                 edge.x -= minX
                 edge.y -= minY
             }
@@ -437,13 +438,50 @@ class DagreLayout : LayoutAlgorithm {
                     height = fullDiag
                 }
                 "circle", "doubleCircle" -> {
-                    // 圆形: 直径 = max(textWidth, textHeight) + padding * 2
-                    val maxDim = maxOf(labelWidth, labelHeight)
-                    width = maxDim + horizontalPadding * 2
-                    height = width
+                    // 圆形 — 对标 mermaid-js circle.ts:
+                    //   r = bbox.width / 2 + halfPadding
+                    //   halfPadding = node.padding / 2 = 15 / 2 = 7.5
+                    // 直径 = textWidth + 2 * halfPadding = textWidth + 15
+                    val halfPadding = 7.5  // node.padding(15) / 2，对标 JS circle.ts
+                    val diameter = labelWidth + halfPadding * 2
+                    width = diameter
+                    height = diameter
+                }
+                "cylinder" -> {
+                    // 圆柱体 — 对标 mermaid-js cylinder.ts / dagre-wrapper nodes.js:
+                    //   w = bbox.width + node.padding = textWidth + 15
+                    //   rx = w / 2
+                    //   ry = rx / (2.5 + w / 50)
+                    //   h = bbox.height + ry + node.padding
+                    val nodePadding = 15.0  // flowchart.padding 默认 15
+                    val w = labelWidth + nodePadding
+                    val rx = w / 2
+                    val ry = rx / (2.5 + w / 50)
+                    width = w
+                    height = labelHeight + ry + nodePadding
+                }
+                "hexagon" -> {
+                    // 六边形 — 对标 mermaid-js hexagon.ts / dagre-wrapper nodes.js:
+                    //   h = bbox.height + node.padding
+                    //   m = h / 4
+                    //   w = bbox.width + 2*m + node.padding
+                    val nodePadding = 15.0
+                    val h = labelHeight + nodePadding
+                    val m = h / 4
+                    width = labelWidth + 2 * m + nodePadding
+                    height = h
+                }
+                "stadium" -> {
+                    // 体育场 — 对标 mermaid-js stadium.ts / dagre-wrapper nodes.js:
+                    //   h = bbox.height + node.padding
+                    //   w = bbox.width + h/4 + node.padding
+                    val nodePadding = 15.0
+                    val h = labelHeight + nodePadding
+                    width = labelWidth + h / 4 + nodePadding
+                    height = h
                 }
                 else -> {
-                    // 矩形类形状（squareRect, roundedRect, stadium 等）
+                    // 矩形类形状（squareRect, roundedRect 等）
                     width = if (node.width > 0) node.width else (labelWidth + horizontalPadding * 2)
                     height = if (node.height > 0) node.height else (labelHeight + verticalPadding * 2)
                 }

@@ -134,6 +134,7 @@ object Normalize {
                     origLabel.y = node.y
                     origLabel.width = node.width
                     origLabel.height = node.height
+                    origLabel.hasLabelCoords = true  // 对标 JS hasOwnProperty('x')
                 }
 
                 v = w

@@ -175,23 +175,19 @@ class FlowchartParser : DiagramParser {
         if (trimmed.isEmpty()) return
 
         // 匹配节点形状模式
+        // 关键：复合分隔符（如 (()), {{}}, ([]), [()]）必须在对应的
+        // 简单分隔符之前匹配，否则外层分隔符会被简单正则抢先匹配。
+        // 例如 A([Stadium]) 会被 roundedRect 的 (…) 匹配为标签 "[Stadium]"。
         val shapePatterns = listOf(
-            // A[text] - 方形
-            Regex("""^(\w+)\[([^\]]*)\]$""") to "squareRect",
-            // A(text) - 圆角
-            Regex("""^(\w+)\(([^)]*)\)$""") to "roundedRect",
+            // === 复合分隔符（必须在前） ===
             // A((text)) - 圆形
             Regex("""^(\w+)\(\(([^)]*)\)\)$""") to "circle",
-            // A{text} - 菱形
-            Regex("""^(\w+)\{([^}]*)\}$""") to "diamond",
             // A{{text}} - 六边形
             Regex("""^(\w+)\{\{([^}]*)\}\}$""") to "hexagon",
             // A([text]) - 体育场
             Regex("""^(\w+)\(\[([^\]]*)\]\)$""") to "stadium",
             // A[(text)] - 圆柱
             Regex("""^(\w+)\[\(([^)]*)\)\]$""") to "cylinder",
-            // A>text] - 旗帜
-            Regex("""^(\w+)>([^\]]*)\]$""") to "odd",
             // A[/text/] - 平行四边形
             Regex("""^(\w+)\[/([^/]*)(/|\\)\]$""") to "parallelogram",
             // A[\text\] - 反向平行四边形
@@ -200,6 +196,15 @@ class FlowchartParser : DiagramParser {
             Regex("""^(\w+)\[/([^\\]*)\\\]$""") to "trapezoid",
             // A[\text/] - 倒梯形
             Regex("""^(\w+)\[\\([^/]*)\/\]$""") to "inv_trapezoid",
+            // === 简单分隔符（在后） ===
+            // A[text] - 方形
+            Regex("""^(\w+)\[([^\]]*)\]$""") to "squareRect",
+            // A(text) - 圆角
+            Regex("""^(\w+)\(([^)]*)\)$""") to "roundedRect",
+            // A{text} - 菱形
+            Regex("""^(\w+)\{([^}]*)\}$""") to "diamond",
+            // A>text] - 旗帜
+            Regex("""^(\w+)>([^\]]*)\]$""") to "odd",
         )
 
         for ((pattern, shape) in shapePatterns) {
