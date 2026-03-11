@@ -448,27 +448,35 @@ class DagreLayout : LayoutAlgorithm {
                     height = diameter
                 }
                 "cylinder" -> {
-                    // 圆柱体 — 对标 mermaid-js cylinder.ts / dagre-wrapper nodes.js:
+                    // 圆柱体 — 对标 mermaid-js cylinder.ts:
                     //   w = bbox.width + node.padding = textWidth + 15
                     //   rx = w / 2
                     //   ry = rx / (2.5 + w / 50)
                     //   h = bbox.height + ry + node.padding
+                    //   path d: M0,ry a... a... l0,h a... l0,-h
+                    //   关键: arc "a rx,ry 0,0,0 w,0" sweep-flag=0(CCW)
+                    //   弧2 从(w,ry)到(0,ry)经过底部到 y=2*ry
+                    //   弧3 从(0,ry+h)到(w,ry+h)经过底部到 y=ry+h+ry=2*ry+h
+                    //   所以 path Y range=[0, 2*ry+h], getBBox height=2*ry+h
                     val nodePadding = 15.0  // flowchart.padding 默认 15
                     val w = labelWidth + nodePadding
                     val rx = w / 2
                     val ry = rx / (2.5 + w / 50)
+                    val h = labelHeight + ry + nodePadding
                     width = w
-                    height = labelHeight + ry + nodePadding
+                    height = 2 * ry + h  // getBBox height = 2*ry + h
                 }
                 "hexagon" -> {
-                    // 六边形 — 对标 mermaid-js hexagon.ts / dagre-wrapper nodes.js:
+                    // 六边形 — 对标 mermaid v11.12.3 编译产物 hexagon 函数:
                     //   h = bbox.height + node.padding
-                    //   m = h / 4
-                    //   w = bbox.width + 2*m + node.padding
+                    //   w = bbox.width + node.padding * 2.5
+                    //   halfWidth = w/2; m = halfWidth/6; halfWidth += m (即 halfWidth *= 7/6)
+                    //   getBBox width = 2 * halfWidth = w * 7/6
                     val nodePadding = 15.0
                     val h = labelHeight + nodePadding
-                    val m = h / 4
-                    width = labelWidth + 2 * m + nodePadding
+                    val w = labelWidth + nodePadding * 2.5
+                    val halfWidth = w / 2 * 7.0 / 6.0
+                    width = 2 * halfWidth  // = w * 7/6
                     height = h
                 }
                 "stadium" -> {
