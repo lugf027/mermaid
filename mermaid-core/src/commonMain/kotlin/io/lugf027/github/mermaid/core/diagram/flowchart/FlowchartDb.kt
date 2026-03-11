@@ -41,8 +41,8 @@ class FlowchartDb : DiagramDB {
         var dir: String? = null,
     )
 
-    // 存储数据
-    private val _vertices = mutableMapOf<String, Vertex>()
+    // 存储数据 — 使用 LinkedHashMap 保持插入顺序（对标 JS Map 的插入顺序语义）
+    private val _vertices = linkedMapOf<String, Vertex>()
     private val _edges = mutableListOf<Edge>()
     private val _subGraphs = mutableListOf<SubGraph>()
     private val _classDefs = mutableMapOf<String, DiagramStyleClassDef>()

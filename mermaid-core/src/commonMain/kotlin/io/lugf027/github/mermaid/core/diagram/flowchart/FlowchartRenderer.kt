@@ -118,7 +118,13 @@ class FlowchartRenderer : DiagramRenderer {
         }
     }
 
-    /** 根据布局结果设置 viewBox - 匹配 mermaid-js 的 viewBox 格式和属性顺序 */
+    /**
+     * 根据布局结果设置 viewBox - 对标 mermaid-js 的 setupViewPortForSVG
+     *
+     * mermaid-js 使用 svg.node().getBBox() 获取所有 SVG 子元素的真实包围盒，
+     * 这包括节点、边路径的所有点。KMP 没有 DOM，所以需要手动遍历节点和边的
+     * 所有坐标点来计算等效的 bounding box。
+     */
     private fun setupViewBox(root: SvgRoot, data: LayoutData) {
         if (data.nodes.isEmpty()) {
             root.attr("style", "max-width: 100px; background-color: white;")
@@ -134,11 +140,23 @@ class FlowchartRenderer : DiagramRenderer {
         var maxX = Double.MIN_VALUE
         var maxY = Double.MIN_VALUE
 
+        // 遍历节点（节点是矩形区域，需要考虑 width/height）
         for (node in data.nodes) {
             minX = minOf(minX, node.x - node.width / 2)
             minY = minOf(minY, node.y - node.height / 2)
             maxX = maxOf(maxX, node.x + node.width / 2)
             maxY = maxOf(maxY, node.y + node.height / 2)
+        }
+
+        // 遍历边的路径点 — 对标 getBBox() 包含边路径的行为
+        // 边路径（如回旋边）可能超出节点的 bounding box
+        for (edge in data.edges) {
+            for (point in edge.points) {
+                minX = minOf(minX, point.x)
+                minY = minOf(minY, point.y)
+                maxX = maxOf(maxX, point.x)
+                maxY = maxOf(maxY, point.y)
+            }
         }
 
         val width = maxX - minX + padding * 2

@@ -31,51 +31,64 @@ class DagreLayout : LayoutAlgorithm {
         // 如果没有节点，直接返回
         if (graph.nodeCount() == 0) return data
 
-        // ====== 完整的 dagre runLayout 流程 ======
+        // ====== 完整的 dagre runLayout 流程 (精确对标 layout.js runLayout) ======
 
         // 1. makeSpaceForEdgeLabels: ranksep /= 2, minlen *= 2
         makeSpaceForEdgeLabels(graph)
 
-        // 2. rank: 分层
+        // 2. removeSelfEdges: 移除自环边（暂存到节点上）
+        removeSelfEdges(graph)
+
+        // 3. acyclic.run: 反转反向边使图变成 DAG
+        Acyclic.run(graph)
+
+        // 4. rank: 分层
         Rank.longestPath(graph)
 
-        // 3. injectEdgeLabelProxies: 为带标签的边创建临时代理节点
+        // 5. injectEdgeLabelProxies: 为带标签的边创建临时代理节点
         injectEdgeLabelProxies(graph)
 
-        // 4. normalizeRanks: 确保最小 rank 为 0
+        // 6. normalizeRanks: 确保最小 rank 为 0
         normalizeRanks(graph)
 
-        // 5. removeEdgeLabelProxies: 将代理节点的 rank 记录到边上
+        // 7. removeEdgeLabelProxies: 将代理节点的 rank 记录到边上
         removeEdgeLabelProxies(graph)
 
-        // 6. normalize.run: 将长边拆分为 dummy 节点
+        // 8. normalize.run: 将长边拆分为 dummy 节点
         Normalize.run(graph)
 
-        // 7. order: 层内排序（包括 dummy 节点）
+        // 9. order: 层内排序（包括 dummy 节点）
         Order.order(graph)
 
-        // 8. coordinateSystem.adjust: LR/RL 时交换 width/height
+        // 10. coordinateSystem.adjust: LR/RL 时交换 width/height
         adjustCoordinateSystem(graph)
 
-        // 9. position: 为所有节点（含 dummy）分配坐标
+        // 11. position: 为所有节点（含 dummy）分配坐标
         Position.position(graph)
 
-        // 10. coordinateSystem.undo: 恢复坐标系
-        undoCoordinateSystem(graph)
-
-        // 11. normalize.undo: 收集 dummy 节点坐标为 edge.points
+        // 12. normalize.undo: 收集 dummy 节点坐标为 edge.points
         Normalize.undo(graph)
 
-        // 12. fixupEdgeLabelCoords
+        // 13. fixupEdgeLabelCoords
         fixupEdgeLabelCoords(graph)
 
-        // 13. assignNodeIntersects: 在首尾添加矩形交点
-        assignNodeIntersects(graph)
+        // 14. coordinateSystem.undo: 恢复坐标系
+        // dagre 原始流程: coordinateSystem.undo 在 normalize.undo + fixup 之后
+        undoCoordinateSystem(graph)
 
-        // 14. translateGraph: 平移使坐标非负并加 margin
+        // 15. translateGraph: 平移使坐标非负并加 margin
         translateGraph(graph)
 
-        // 15. 将坐标写回 LayoutData
+        // 17. assignNodeIntersects: 在首尾添加矩形交点
+        assignNodeIntersects(graph)
+
+        // 18. reversePointsForReversedEdges: 反转被反转边的 points
+        Acyclic.reversePointsForReversedEdges(graph)
+
+        // 19. acyclic.undo: 恢复反向边
+        Acyclic.undo(graph)
+
+        // 20. 将坐标写回 LayoutData
         return applyLayout(data, graph)
     }
 
@@ -96,7 +109,7 @@ class DagreLayout : LayoutAlgorithm {
             edge.minLen *= 2
             if (edge.labelpos.lowercase() != "c") {
                 val rankdir = graph.rankdir.uppercase()
-                if (rankdir == "TB" || rankdir == "BT") {
+                if (rankdir == "TB" || rankdir == "TD" || rankdir == "BT") {
                     edge.width += edge.labeloffset
                 } else {
                     edge.height += edge.labeloffset
@@ -159,6 +172,20 @@ class DagreLayout : LayoutAlgorithm {
             val edge = graph.getEdge(edgeObj.v, edgeObj.w) ?: continue
             edge.labelRank = proxy.rank
             graph.removeNode(proxy.id)
+        }
+    }
+
+    /**
+     * 对标 dagre layout.js removeSelfEdges
+     *
+     * 移除自环边（source == target 的边），因为 dagre 无法处理自环。
+     * dagre 原始实现会将自环存储到节点上并在后续恢复，
+     * 但为简化实现，这里直接跳过自环边。
+     */
+    private fun removeSelfEdges(graph: Graph) {
+        val selfEdges = graph.edges().filter { it.source == it.target }
+        for (edge in selfEdges) {
+            graph.removeEdge(edge.source, edge.target)
         }
     }
 
@@ -325,9 +352,9 @@ class DagreLayout : LayoutAlgorithm {
      */
     private fun translateGraph(graph: Graph) {
         var minX = Double.MAX_VALUE
-        var maxX = Double.MIN_VALUE
+        var maxX = 0.0  // 精确对标 JS: var maxX = 0;
         var minY = Double.MAX_VALUE
-        var maxY = Double.MIN_VALUE
+        var maxY = 0.0  // 精确对标 JS: var maxY = 0;
 
         fun getExtremes(x: Double, y: Double, w: Double, h: Double) {
             minX = min(minX, x - w / 2)
@@ -376,7 +403,9 @@ class DagreLayout : LayoutAlgorithm {
         val graph = Graph()
 
         // 设置图属性
-        graph.rankdir = data.direction
+        // dagre 将 TD 视为 TB 的别名
+        val direction = if (data.direction.uppercase() == "TD") "TB" else data.direction.uppercase()
+        graph.rankdir = direction
         graph.rankSep = data.rankSpacing.toDouble()
         graph.nodeSep = data.nodeSpacing.toDouble()
         graph.marginX = data.diagramPadding.toDouble()

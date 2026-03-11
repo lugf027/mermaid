@@ -69,10 +69,12 @@ class Graph(
     /** 唯一 ID 计数器 */
     private var idCounter = 0
 
-    // 内部数据
-    private val nodes = mutableMapOf<String, NodeData>()
-    private val inEdges = mutableMapOf<String, MutableList<EdgeData>>()
-    private val outEdges = mutableMapOf<String, MutableList<EdgeData>>()
+    // 内部数据 — 使用 LinkedHashMap 保持插入顺序（对标 JS Map 的插入顺序语义）
+    private val nodes = linkedMapOf<String, NodeData>()
+    private val inEdges = linkedMapOf<String, MutableList<EdgeData>>()
+    private val outEdges = linkedMapOf<String, MutableList<EdgeData>>()
+    /** 全局边列表 — 保持边的全局插入顺序，对标 JS graphlib 的 _edgeObjs */
+    private val allEdges = linkedMapOf<String, EdgeData>()
     private val parent = mutableMapOf<String, String?>()
     private val childrenMap = mutableMapOf<String, MutableSet<String>>()
 
@@ -95,10 +97,12 @@ class Graph(
         val inList = inEdges[id]?.toList() ?: emptyList()
         for (edge in inList) {
             outEdges[edge.source]?.removeAll { it.target == id }
+            allEdges.remove("${edge.source}\u0000${id}")
         }
         val outList = outEdges[id]?.toList() ?: emptyList()
         for (edge in outList) {
             inEdges[edge.target]?.removeAll { it.source == id }
+            allEdges.remove("${id}\u0000${edge.target}")
         }
         nodes.remove(id)
         inEdges.remove(id)
@@ -127,16 +131,22 @@ class Graph(
     // ====== 边操作 ======
 
     fun setEdge(source: String, target: String, data: EdgeData = EdgeData(source, target)) {
+        val edgeKey = "${source}\u0000${target}"
         // 先移除已有的同方向边
         outEdges.getOrPut(source) { mutableListOf() }.removeAll { it.target == target }
         inEdges.getOrPut(target) { mutableListOf() }.removeAll { it.source == source }
+        allEdges.remove(edgeKey)
+        // 添加新边
         outEdges[source]!!.add(data)
         inEdges[target]!!.add(data)
+        allEdges[edgeKey] = data
     }
 
     fun removeEdge(source: String, target: String) {
+        val edgeKey = "${source}\u0000${target}"
         outEdges[source]?.removeAll { it.target == target }
         inEdges[target]?.removeAll { it.source == source }
+        allEdges.remove(edgeKey)
     }
 
     fun getEdge(source: String, target: String): EdgeData? {
@@ -147,8 +157,14 @@ class Graph(
         return outEdges[source]?.any { it.target == target } == true
     }
 
+    /**
+     * 返回所有边 — 保持全局插入顺序，对标 JS graphlib g.edges()
+     *
+     * 注意：不是按 source 分组的顺序，而是按边添加到图中的顺序。
+     * 这对 normalize.run 中边的处理顺序至关重要。
+     */
     fun edges(): List<EdgeData> {
-        return outEdges.values.flatten()
+        return allEdges.values.toList()
     }
 
     /** 返回所有边的 (source, target) 键对 */
