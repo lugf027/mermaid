@@ -2,14 +2,26 @@ package io.lugf027.github.mermaid.core.layout.dagre
 
 import io.lugf027.github.mermaid.core.layout.*
 import io.lugf027.github.mermaid.core.util.TextUtils
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 /**
- * Dagre 布局主入口 - 对标 mermaid-js layout-algorithms/dagre
+ * Dagre 布局主入口 - 精确对标 dagre-d3-es/src/dagre/layout.js
  *
- * 实现基于 Sugiyama 的分层有向图布局：
- * 1. Rank：将节点分配到不同层级
- * 2. Order：在同层内排序以最小化边交叉
- * 3. Position：分配具体的 x, y 坐标
+ * 完整实现 dagre 的 Sugiyama 分层有向图布局流程：
+ *
+ * 1. makeSpaceForEdgeLabels: ranksep /= 2, minlen *= 2
+ * 2. rank: 使用 longest-path 为节点分配层级
+ * 3. normalize.run: 将长边拆分为 dummy 节点
+ * 4. order: 层内排序最小化边交叉
+ * 5. coordinateSystem.adjust: LR/RL 时交换 width/height
+ * 6. position: 为所有节点（含 dummy）分配坐标
+ * 7. coordinateSystem.undo: 恢复坐标系
+ * 8. normalize.undo: 收集 dummy 节点坐标为 edge.points
+ * 9. assignNodeIntersects: 在首尾添加矩形交点
+ * 10. translateGraph: 平移使坐标非负并加 margin
+ * 11. applyLayout: 将结果写回 LayoutData，执行 insertEdge 逻辑
  */
 class DagreLayout : LayoutAlgorithm {
 
@@ -19,54 +31,343 @@ class DagreLayout : LayoutAlgorithm {
         // 如果没有节点，直接返回
         if (graph.nodeCount() == 0) return data
 
-        // 1. Rank 分层
+        // ====== 完整的 dagre runLayout 流程 ======
+
+        // 1. makeSpaceForEdgeLabels: ranksep /= 2, minlen *= 2
+        makeSpaceForEdgeLabels(graph)
+
+        // 2. rank: 分层
         Rank.longestPath(graph)
 
-        // 2. Order 排序
+        // 3. injectEdgeLabelProxies: 为带标签的边创建临时代理节点
+        injectEdgeLabelProxies(graph)
+
+        // 4. normalizeRanks: 确保最小 rank 为 0
+        normalizeRanks(graph)
+
+        // 5. removeEdgeLabelProxies: 将代理节点的 rank 记录到边上
+        removeEdgeLabelProxies(graph)
+
+        // 6. normalize.run: 将长边拆分为 dummy 节点
+        Normalize.run(graph)
+
+        // 7. order: 层内排序（包括 dummy 节点）
         Order.order(graph)
 
-        // 3. 计算每对相邻 rank 之间的边标签宽度，用于增加间距
-        val edgeLabelWidths = computeEdgeLabelWidths(data, graph)
+        // 8. coordinateSystem.adjust: LR/RL 时交换 width/height
+        adjustCoordinateSystem(graph)
 
-        // 4. Position 坐标赋值（传入边标签宽度信息）
-        Position.position(graph, edgeLabelWidths)
+        // 9. position: 为所有节点（含 dummy）分配坐标
+        Position.position(graph)
 
-        // 5. 将坐标写回 LayoutData
+        // 10. coordinateSystem.undo: 恢复坐标系
+        undoCoordinateSystem(graph)
+
+        // 11. normalize.undo: 收集 dummy 节点坐标为 edge.points
+        Normalize.undo(graph)
+
+        // 12. fixupEdgeLabelCoords
+        fixupEdgeLabelCoords(graph)
+
+        // 13. assignNodeIntersects: 在首尾添加矩形交点
+        assignNodeIntersects(graph)
+
+        // 14. translateGraph: 平移使坐标非负并加 margin
+        translateGraph(graph)
+
+        // 15. 将坐标写回 LayoutData
         return applyLayout(data, graph)
     }
 
+    // ========================================================================
+    // dagre 内部步骤
+    // ========================================================================
+
     /**
-     * 计算每对相邻 rank 之间跨越的最大边标签宽度。
+     * 对标 dagre layout.js makeSpaceForEdgeLabels
      *
-     * mermaid-js 中，带标签的边在相邻 rank 之间增加间距 = 标签文本宽度，
-     * 标签位置在间隙中心。
-     *
-     * @return Map: rank -> 该 rank 到下一 rank 之间的最大边标签宽度
+     * 通过加倍 minlen 和减半 ranksep 来为边标签腾出空间。
+     * 这样每条边至少跨 2 个 rank，中间的 dummy 节点可以放置标签。
      */
-    private fun computeEdgeLabelWidths(data: LayoutData, graph: Graph): Map<Int, Double> {
-        val result = mutableMapOf<Int, Double>()
-        val isHorizontal = graph.rankdir == "LR" || graph.rankdir == "RL"
+    private fun makeSpaceForEdgeLabels(graph: Graph) {
+        graph.rankSep /= 2
 
-        for (edge in data.edges) {
-            if (edge.label.isNullOrEmpty()) continue
-            val sourceNode = graph.getNode(edge.start) ?: continue
-            val targetNode = graph.getNode(edge.end) ?: continue
+        for (edge in graph.edges()) {
+            edge.minLen *= 2
+            if (edge.labelpos.lowercase() != "c") {
+                val rankdir = graph.rankdir.uppercase()
+                if (rankdir == "TB" || rankdir == "BT") {
+                    edge.width += edge.labeloffset
+                } else {
+                    edge.height += edge.labeloffset
+                }
+            }
+        }
+    }
 
-            // 边标签宽度 = 文本宽度（mermaid-js 在 16px 字体下测量标签宽度）
-            val labelWidth = TextUtils.estimateDomTextWidth(edge.label!!, 16.0)
+    /**
+     * 对标 dagre layout.js injectEdgeLabelProxies
+     *
+     * 为带标签的边创建临时代理节点。
+     * 这些节点在 rank 分配后用于确定标签的 rank 位置。
+     */
+    private fun injectEdgeLabelProxies(graph: Graph) {
+        for (edge in graph.edges().toList()) {
+            if (edge.width > 0 && edge.height > 0) {
+                val v = graph.getNode(edge.source) ?: continue
+                val w = graph.getNode(edge.target) ?: continue
+                val proxyRank = (w.rank - v.rank) / 2 + v.rank
+                val proxyId = graph.uniqueId("_ep")
+                graph.setNode(proxyId, Graph.NodeData(
+                    id = proxyId,
+                    width = 0.0,
+                    height = 0.0,
+                    dummy = "edge-proxy",
+                    rank = proxyRank,
+                    edgeObj = Graph.EdgeKey(edge.source, edge.target)
+                ))
+            }
+        }
+    }
 
-            // 确定源和目标的 rank（取较小的 rank 作为间隙起始）
-            val minRank = minOf(sourceNode.rank, targetNode.rank)
+    /**
+     * 对标 dagre util.js normalizeRanks
+     *
+     * 确保最小 rank 为 0。
+     */
+    private fun normalizeRanks(graph: Graph) {
+        val minRank = graph.getNodes().filter { it.rank >= 0 }.minOfOrNull { it.rank } ?: 0
+        if (minRank != 0) {
+            for (node in graph.getNodes()) {
+                if (node.rank >= 0) {
+                    node.rank -= minRank
+                }
+            }
+        }
+    }
 
-            // 记录该 rank 间隙的最大标签宽度
-            val current = result[minRank] ?: 0.0
-            if (labelWidth > current) {
-                result[minRank] = labelWidth
+    /**
+     * 对标 dagre layout.js removeEdgeLabelProxies
+     *
+     * 将代理节点的 rank 记录到对应边的 labelRank 属性上，
+     * 然后移除代理节点。
+     */
+    private fun removeEdgeLabelProxies(graph: Graph) {
+        val proxies = graph.getNodes().filter { it.dummy == "edge-proxy" }
+        for (proxy in proxies) {
+            val edgeObj = proxy.edgeObj ?: continue
+            val edge = graph.getEdge(edgeObj.v, edgeObj.w) ?: continue
+            edge.labelRank = proxy.rank
+            graph.removeNode(proxy.id)
+        }
+    }
+
+    /**
+     * 对标 dagre coordinate-system.js adjust
+     *
+     * LR/RL 方向时，交换所有节点和边的 width/height，
+     * 使内部始终以 TB 方向处理。
+     */
+    private fun adjustCoordinateSystem(graph: Graph) {
+        val rankdir = graph.rankdir.lowercase()
+        if (rankdir == "lr" || rankdir == "rl") {
+            for (node in graph.getNodes()) {
+                val w = node.width
+                node.width = node.height
+                node.height = w
+            }
+            for (edge in graph.edges()) {
+                val w = edge.width
+                edge.width = edge.height
+                edge.height = w
+            }
+        }
+    }
+
+    /**
+     * 对标 dagre coordinate-system.js undo
+     *
+     * 恢复坐标系：
+     * - BT/RL: 反转 y
+     * - LR/RL: 交换 x/y 和 width/height
+     */
+    private fun undoCoordinateSystem(graph: Graph) {
+        val rankdir = graph.rankdir.lowercase()
+
+        if (rankdir == "bt" || rankdir == "rl") {
+            // reverseY
+            for (node in graph.getNodes()) {
+                node.y = -node.y
+            }
+            for (edge in graph.edges()) {
+                for (i in edge.points.indices) {
+                    edge.points[i] = Point(edge.points[i].x, -edge.points[i].y)
+                }
+                edge.y = -edge.y
             }
         }
 
-        return result
+        if (rankdir == "lr" || rankdir == "rl") {
+            // swapXY for nodes
+            for (node in graph.getNodes()) {
+                val x = node.x
+                node.x = node.y
+                node.y = x
+            }
+            // swapXY for edges
+            for (edge in graph.edges()) {
+                for (i in edge.points.indices) {
+                    edge.points[i] = Point(edge.points[i].y, edge.points[i].x)
+                }
+                val ex = edge.x
+                edge.x = edge.y
+                edge.y = ex
+            }
+            // swapWidthHeight
+            for (node in graph.getNodes()) {
+                val w = node.width
+                node.width = node.height
+                node.height = w
+            }
+            for (edge in graph.edges()) {
+                val w = edge.width
+                edge.width = edge.height
+                edge.height = w
+            }
+        }
     }
+
+    /**
+     * 对标 dagre layout.js fixupEdgeLabelCoords
+     */
+    private fun fixupEdgeLabelCoords(graph: Graph) {
+        for (edge in graph.edges()) {
+            if (edge.x != 0.0 || edge.y != 0.0) {
+                val lp = edge.labelpos.lowercase()
+                if (lp == "l" || lp == "r") {
+                    edge.width -= edge.labeloffset
+                }
+                when (lp) {
+                    "l" -> edge.x -= edge.width / 2 + edge.labeloffset
+                    "r" -> edge.x += edge.width / 2 + edge.labeloffset
+                }
+            }
+        }
+    }
+
+    /**
+     * 对标 dagre layout.js assignNodeIntersects
+     *
+     * dagre 内部使用 intersectRect（所有节点当做矩形）来计算
+     * 边的首尾交点。这些交点后续会被 mermaid-js 的 insertEdge 替换。
+     */
+    private fun assignNodeIntersects(graph: Graph) {
+        for (edge in graph.edges()) {
+            val nodeV = graph.getNode(edge.source) ?: continue
+            val nodeW = graph.getNode(edge.target) ?: continue
+
+            val p1: Point
+            val p2: Point
+
+            if (edge.points.isEmpty()) {
+                p1 = Point(nodeW.x, nodeW.y)
+                p2 = Point(nodeV.x, nodeV.y)
+            } else {
+                p1 = edge.points.first()
+                p2 = edge.points.last()
+            }
+
+            // dagre 使用 util.intersectRect（矩形交点）
+            edge.points.add(0, intersectRect(nodeV, p1))
+            edge.points.add(intersectRect(nodeW, p2))
+        }
+    }
+
+    /**
+     * 矩形交点 — 对标 dagre util.js intersectRect
+     *
+     * 注意：这是 dagre 内部的矩形交点，与 mermaid-js 的形状 intersect 不同。
+     * dagre 对所有节点都用矩形交点，而 mermaid-js 会根据形状使用不同的交点算法。
+     */
+    private fun intersectRect(rect: Graph.NodeData, point: Point): Point {
+        val x = rect.x
+        val y = rect.y
+        val dx = point.x - x
+        val dy = point.y - y
+        val w = rect.width / 2
+        val h = rect.height / 2
+
+        if (dx == 0.0 && dy == 0.0) {
+            // dagre throws error here, but we return center as fallback
+            return Point(x, y)
+        }
+
+        val sx: Double
+        val sy: Double
+
+        if (abs(dy) * w > abs(dx) * h) {
+            val hh = if (dy < 0) -h else h
+            sx = (hh * dx) / dy
+            sy = hh
+        } else {
+            val ww = if (dx < 0) -w else w
+            sx = ww
+            sy = (ww * dy) / dx
+        }
+
+        return Point(x + sx, y + sy)
+    }
+
+    /**
+     * 对标 dagre layout.js translateGraph
+     *
+     * 平移所有坐标使最小值 + margin。
+     */
+    private fun translateGraph(graph: Graph) {
+        var minX = Double.MAX_VALUE
+        var maxX = Double.MIN_VALUE
+        var minY = Double.MAX_VALUE
+        var maxY = Double.MIN_VALUE
+
+        fun getExtremes(x: Double, y: Double, w: Double, h: Double) {
+            minX = min(minX, x - w / 2)
+            maxX = max(maxX, x + w / 2)
+            minY = min(minY, y - h / 2)
+            maxY = max(maxY, y + h / 2)
+        }
+
+        for (node in graph.getNodes()) {
+            getExtremes(node.x, node.y, node.width, node.height)
+        }
+
+        for (edge in graph.edges()) {
+            if (edge.x != 0.0 || edge.y != 0.0) {
+                getExtremes(edge.x, edge.y, edge.width, edge.height)
+            }
+        }
+
+        minX -= graph.marginX
+        minY -= graph.marginY
+
+        for (node in graph.getNodes()) {
+            node.x -= minX
+            node.y -= minY
+        }
+
+        for (edge in graph.edges()) {
+            for (i in edge.points.indices) {
+                edge.points[i] = Point(edge.points[i].x - minX, edge.points[i].y - minY)
+            }
+            if (edge.x != 0.0 || edge.y != 0.0) {
+                edge.x -= minX
+                edge.y -= minY
+            }
+        }
+    }
+
+    // ========================================================================
+    // 图构建
+    // ========================================================================
 
     /**
      * 从 LayoutData 构建 Graph
@@ -129,30 +430,51 @@ class DagreLayout : LayoutAlgorithm {
             ))
         }
 
-        // 添加边（不再插入虚拟标签节点，标签位置在布局后计算）
+        // 添加边 — 设置标签尺寸供 dagre 使用
         for (edge in data.edges) {
             if (!graph.hasNode(edge.start) || !graph.hasNode(edge.end)) continue
+
+            val labelWidth: Double
+            val labelHeight: Double
+            if (!edge.label.isNullOrEmpty()) {
+                labelWidth = TextUtils.estimateDomTextWidth(edge.label!!, 16.0)
+                labelHeight = 24.0
+            } else {
+                labelWidth = 0.0
+                labelHeight = 0.0
+            }
 
             graph.setEdge(edge.start, edge.end, Graph.EdgeData(
                 source = edge.start,
                 target = edge.end,
                 label = edge.label,
-                minLen = edge.minLen
+                minLen = edge.minLen,
+                width = labelWidth,
+                height = labelHeight
             ))
         }
 
         return graph
     }
 
+    // ========================================================================
+    // 结果应用
+    // ========================================================================
+
     /**
      * 将 Graph 中的布局结果写回 LayoutData。
      *
-     * 对于有标签的边，标签位置 = 源节点边缘和目标节点边缘之间的中点。
-     * 边路径从节点边缘出发，经过标签位置，到达目标节点边缘。
+     * 精确复刻 mermaid-js 的边点处理流程（insertEdge）：
+     *
+     * dagre 布局后 edge.points 已包含完整的路由信息：
+     *   [startRectIntersect, ...dummyNodePositions..., endRectIntersect]
+     *
+     * mermaid-js insertEdge() 的逻辑：
+     *   - points = points.slice(1, edge.points.length - 1)  // 去掉 dagre 的矩形交点
+     *   - points.unshift(tail.intersect(points[0]))  // 用形状特定交点替换首点
+     *   - points.push(head.intersect(points[points.length-1]))  // 用形状特定交点替换尾点
      */
     private fun applyLayout(data: LayoutData, graph: Graph): LayoutData {
-        val isHorizontal = graph.rankdir == "LR" || graph.rankdir == "RL"
-
         val updatedNodes = data.nodes.map { node ->
             val graphNode = graph.getNode(node.id)
             if (graphNode != null) {
@@ -171,51 +493,40 @@ class DagreLayout : LayoutAlgorithm {
             val targetNode = graph.getNode(edge.end)
 
             if (graphEdge != null && sourceNode != null && targetNode != null) {
-                if (!edge.label.isNullOrEmpty()) {
-                    // 有标签的边：
-                    // 1) 计算标签位置（源节点边缘和目标节点边缘之间的中点）
-                    val labelX: Double
-                    val labelY: Double
-                    if (isHorizontal) {
-                        val sourceRight = sourceNode.x + sourceNode.width / 2
-                        val targetLeft = targetNode.x - targetNode.width / 2
-                        labelX = (sourceRight + targetLeft) / 2
-                        labelY = targetNode.y
-                    } else {
-                        val sourceBottom = sourceNode.y + sourceNode.height / 2
-                        val targetTop = targetNode.y - targetNode.height / 2
-                        labelX = targetNode.x
-                        labelY = (sourceBottom + targetTop) / 2
-                    }
+                // 对标 mermaid-js insertEdge (edges.js line 563-576):
+                //   points = points.slice(1, edge.points.length - 1);  // 去掉首尾
+                //   points.unshift(tail.intersect(points[0]));
+                //   points.push(head.intersect(points[points.length - 1]));
+                val dagrePoints = graphEdge.points.toList()
 
-                    // 2) 使用 graphEdge.points 中的交点（起点和终点），中间插入标签位置
-                    val points = if (graphEdge.points.size >= 2) {
-                        mutableListOf(
-                            graphEdge.points.first(),
-                            Point(labelX, labelY),
-                            graphEdge.points.last()
-                        )
-                    } else {
-                        mutableListOf(
-                            Point(sourceNode.x, sourceNode.y),
-                            Point(labelX, labelY),
-                            Point(targetNode.x, targetNode.y)
-                        )
-                    }
+                val finalPoints: MutableList<Point>
 
-                    edge.copy(
-                        points = points,
-                        x = labelX,
-                        y = labelY
-                    )
+                if (dagrePoints.size > 2) {
+                    // 去掉 dagre 添加的首尾矩形交点，保留中间 dummy 节点坐标
+                    val middlePoints = dagrePoints.subList(1, dagrePoints.size - 1).toMutableList()
+
+                    // 用形状特定的 intersect 替换首尾
+                    val startPoint = Position.intersectNode(sourceNode, middlePoints.first())
+                    val endPoint = Position.intersectNode(targetNode, middlePoints.last())
+
+                    finalPoints = mutableListOf<Point>()
+                    finalPoints.add(startPoint)
+                    finalPoints.addAll(middlePoints)
+                    finalPoints.add(endPoint)
                 } else {
-                    // 无标签的边：直接使用 Position.assignEdgePoints 计算的路径
-                    edge.copy(
-                        points = graphEdge.points.toMutableList(),
-                        x = graphEdge.x,
-                        y = graphEdge.y
-                    )
+                    // 边界情况：只有 2 个点
+                    finalPoints = dagrePoints.toMutableList()
                 }
+
+                // 标签位置
+                val labelX = graphEdge.x
+                val labelY = graphEdge.y
+
+                edge.copy(
+                    points = finalPoints,
+                    x = labelX,
+                    y = labelY
+                )
             } else edge
         }
 

@@ -22,8 +22,19 @@ class Graph(
         var order: Int = -1,
         var padding: Double = 0.0,
         var shape: String = "rect",
+        /** dummy 节点类型: null=真实节点, "edge"=长边拆分, "edge-label"=边标签 */
+        var dummy: String? = null,
+        /** 如果是 dummy 节点，指向原始边的 EdgeData */
+        var edgeLabel: EdgeData? = null,
+        /** 如果是 dummy 节点，记录原始边的 source->target */
+        var edgeObj: EdgeKey? = null,
+        /** 标签位置（用于带标签的 dummy 节点） */
+        var labelpos: String? = null,
         val extra: MutableMap<String, Any> = mutableMapOf()
     )
+
+    /** 边的键 */
+    data class EdgeKey(val v: String, val w: String, val name: String? = null)
 
     /** 边数据 */
     data class EdgeData(
@@ -38,6 +49,11 @@ class Graph(
         var y: Double = 0.0,
         var points: MutableList<io.lugf027.github.mermaid.core.layout.Point> = mutableListOf(),
         var labelpos: String = "c",
+        var labeloffset: Double = 10.0,
+        /** 标签在哪个 rank（由 injectEdgeLabelProxies 设置） */
+        var labelRank: Int = -1,
+        /** 是否是反转的边 */
+        var reversed: Boolean = false,
         val extra: MutableMap<String, Any> = mutableMapOf()
     )
 
@@ -45,9 +61,13 @@ class Graph(
     var rankdir: String = "TB"
     var rankSep: Double = 50.0
     var nodeSep: Double = 50.0
-    var edgeSep: Double = 10.0
+    var edgeSep: Double = 20.0
     var marginX: Double = 0.0
     var marginY: Double = 0.0
+    /** dagre normalize 使用的 dummy chain 首节点列表 */
+    val dummyChains: MutableList<String> = mutableListOf()
+    /** 唯一 ID 计数器 */
+    private var idCounter = 0
 
     // 内部数据
     private val nodes = mutableMapOf<String, NodeData>()
@@ -71,6 +91,15 @@ class Graph(
     fun hasNode(id: String): Boolean = nodes.containsKey(id)
 
     fun removeNode(id: String) {
+        // 移除与该节点相关的所有边
+        val inList = inEdges[id]?.toList() ?: emptyList()
+        for (edge in inList) {
+            outEdges[edge.source]?.removeAll { it.target == id }
+        }
+        val outList = outEdges[id]?.toList() ?: emptyList()
+        for (edge in outList) {
+            inEdges[edge.target]?.removeAll { it.source == id }
+        }
         nodes.remove(id)
         inEdges.remove(id)
         outEdges.remove(id)
@@ -84,11 +113,30 @@ class Graph(
 
     fun getNodes(): List<NodeData> = nodes.values.toList()
 
+    /**
+     * 生成唯一 ID — 对标 dagre 的 _.uniqueId
+     */
+    fun uniqueId(prefix: String): String {
+        var v: String
+        do {
+            v = "$prefix${idCounter++}"
+        } while (hasNode(v))
+        return v
+    }
+
     // ====== 边操作 ======
 
     fun setEdge(source: String, target: String, data: EdgeData = EdgeData(source, target)) {
-        outEdges.getOrPut(source) { mutableListOf() }.add(data)
-        inEdges.getOrPut(target) { mutableListOf() }.add(data)
+        // 先移除已有的同方向边
+        outEdges.getOrPut(source) { mutableListOf() }.removeAll { it.target == target }
+        inEdges.getOrPut(target) { mutableListOf() }.removeAll { it.source == source }
+        outEdges[source]!!.add(data)
+        inEdges[target]!!.add(data)
+    }
+
+    fun removeEdge(source: String, target: String) {
+        outEdges[source]?.removeAll { it.target == target }
+        inEdges[target]?.removeAll { it.source == source }
     }
 
     fun getEdge(source: String, target: String): EdgeData? {
@@ -101,6 +149,11 @@ class Graph(
 
     fun edges(): List<EdgeData> {
         return outEdges.values.flatten()
+    }
+
+    /** 返回所有边的 (source, target) 键对 */
+    fun edgeKeys(): List<EdgeKey> {
+        return edges().map { EdgeKey(it.source, it.target) }
     }
 
     fun edgeCount(): Int = edges().size
