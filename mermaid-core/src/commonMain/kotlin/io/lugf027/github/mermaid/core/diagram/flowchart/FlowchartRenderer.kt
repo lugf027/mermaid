@@ -157,6 +157,14 @@ class FlowchartRenderer : DiagramRenderer {
                 maxX = maxOf(maxX, point.x)
                 maxY = maxOf(maxY, point.y)
             }
+            // 边标签位置 — 对标 getBBox() 包含 foreignObject 标签的行为
+            // 标签的 (x, y) 是中心坐标，foreignObject 宽 = 文本宽度, 高 = 24px
+            if (edge.x != 0.0 || edge.y != 0.0) {
+                val labelHalfH = 12.0  // foreignObject 高度固定 24px / 2
+                minY = minOf(minY, edge.y - labelHalfH)
+                maxY = maxOf(maxY, edge.y + labelHalfH)
+                // X 方向不需要额外处理，因为标签 X 通常在路径范围内
+            }
         }
 
         val width = maxX - minX + padding * 2

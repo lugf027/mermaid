@@ -61,6 +61,10 @@ class Graph(
          * 无标签边的 x/y 始终为默认值 0.0，但在 JS 中属性不存在。
          */
         var hasLabelCoords: Boolean = false,
+        /** multigraph 边名称 — 对标 graphlib edge.name，用于区分同方向的多条边 */
+        var name: String? = null,
+        /** 反转边时保存的原始 name — 对标 JS acyclic label.forwardName */
+        var forwardName: String? = null,
         val extra: MutableMap<String, Any> = mutableMapOf()
     )
 
@@ -103,13 +107,13 @@ class Graph(
         // 移除与该节点相关的所有边
         val inList = inEdges[id]?.toList() ?: emptyList()
         for (edge in inList) {
-            outEdges[edge.source]?.removeAll { it.target == id }
-            allEdges.remove("${edge.source}\u0000${id}")
+            outEdges[edge.source]?.removeAll { it.target == id && it.name == edge.name }
+            allEdges.remove(edgeKey(edge.source, id, edge.name))
         }
         val outList = outEdges[id]?.toList() ?: emptyList()
         for (edge in outList) {
-            inEdges[edge.target]?.removeAll { it.source == id }
-            allEdges.remove("${id}\u0000${edge.target}")
+            inEdges[edge.target]?.removeAll { it.source == id && it.name == edge.name }
+            allEdges.remove(edgeKey(id, edge.target, edge.name))
         }
         nodes.remove(id)
         inEdges.remove(id)
@@ -137,31 +141,63 @@ class Graph(
 
     // ====== 边操作 ======
 
-    fun setEdge(source: String, target: String, data: EdgeData = EdgeData(source, target)) {
-        val edgeKey = "${source}\u0000${target}"
-        // 先移除已有的同方向边
-        outEdges.getOrPut(source) { mutableListOf() }.removeAll { it.target == target }
-        inEdges.getOrPut(target) { mutableListOf() }.removeAll { it.source == source }
-        allEdges.remove(edgeKey)
+    /** 构建边的唯一 key — 对标 JS graphlib 的 edgeArgsToId */
+    private fun edgeKey(source: String, target: String, name: String? = null): String {
+        return if (name != null) "${source}\u0000${target}\u0000${name}"
+        else "${source}\u0000${target}"
+    }
+
+    /**
+     * 设置边。如果提供了 name 参数（multigraph），只替换相同 name 的边；
+     * 否则替换同方向的所有无名边。
+     */
+    fun setEdge(source: String, target: String, data: EdgeData = EdgeData(source, target), name: String? = null) {
+        val key = edgeKey(source, target, name)
+        data.name = name
+        // 先移除已有的同 key 边
+        val outList = outEdges.getOrPut(source) { mutableListOf() }
+        val inList = inEdges.getOrPut(target) { mutableListOf() }
+        if (name != null) {
+            outList.removeAll { it.target == target && it.name == name }
+            inList.removeAll { it.source == source && it.name == name }
+        } else {
+            outList.removeAll { it.target == target && it.name == null }
+            inList.removeAll { it.source == source && it.name == null }
+        }
+        allEdges.remove(key)
         // 添加新边
-        outEdges[source]!!.add(data)
-        inEdges[target]!!.add(data)
-        allEdges[edgeKey] = data
+        outList.add(data)
+        inList.add(data)
+        allEdges[key] = data
     }
 
-    fun removeEdge(source: String, target: String) {
-        val edgeKey = "${source}\u0000${target}"
-        outEdges[source]?.removeAll { it.target == target }
-        inEdges[target]?.removeAll { it.source == source }
-        allEdges.remove(edgeKey)
+    fun removeEdge(source: String, target: String, name: String? = null) {
+        val key = edgeKey(source, target, name)
+        if (name != null) {
+            outEdges[source]?.removeAll { it.target == target && it.name == name }
+            inEdges[target]?.removeAll { it.source == source && it.name == name }
+        } else {
+            outEdges[source]?.removeAll { it.target == target && it.name == null }
+            inEdges[target]?.removeAll { it.source == source && it.name == null }
+        }
+        allEdges.remove(key)
     }
 
-    fun getEdge(source: String, target: String): EdgeData? {
+    fun getEdge(source: String, target: String, name: String? = null): EdgeData? {
+        return if (name != null) {
+            outEdges[source]?.find { it.target == target && it.name == name }
+        } else {
+            outEdges[source]?.find { it.target == target && it.name == null }
+        }
+    }
+
+    /** 获取任意同方向边（不区分 name）— 用于 applyLayout 等不关心 name 的场景 */
+    fun getEdgeAny(source: String, target: String): EdgeData? {
         return outEdges[source]?.find { it.target == target }
     }
 
-    fun hasEdge(source: String, target: String): Boolean {
-        return outEdges[source]?.any { it.target == target } == true
+    fun hasEdge(source: String, target: String, name: String? = null): Boolean {
+        return getEdge(source, target, name) != null
     }
 
     /**

@@ -137,7 +137,7 @@ class DagreLayout : LayoutAlgorithm {
                     height = 0.0,
                     dummy = "edge-proxy",
                     rank = proxyRank,
-                    edgeObj = Graph.EdgeKey(edge.source, edge.target)
+                    edgeObj = Graph.EdgeKey(edge.source, edge.target, edge.name)
                 ))
             }
         }
@@ -169,7 +169,7 @@ class DagreLayout : LayoutAlgorithm {
         val proxies = graph.getNodes().filter { it.dummy == "edge-proxy" }
         for (proxy in proxies) {
             val edgeObj = proxy.edgeObj ?: continue
-            val edge = graph.getEdge(edgeObj.v, edgeObj.w) ?: continue
+            val edge = graph.getEdge(edgeObj.v, edgeObj.w, edgeObj.name) ?: continue
             edge.labelRank = proxy.rank
             graph.removeNode(proxy.id)
         }
@@ -563,7 +563,7 @@ class DagreLayout : LayoutAlgorithm {
         }
 
         val updatedEdges = data.edges.map { edge ->
-            val graphEdge = graph.getEdge(edge.start, edge.end)
+            val graphEdge = graph.getEdgeAny(edge.start, edge.end)
             val sourceNode = graph.getNode(edge.start)
             val targetNode = graph.getNode(edge.end)
 

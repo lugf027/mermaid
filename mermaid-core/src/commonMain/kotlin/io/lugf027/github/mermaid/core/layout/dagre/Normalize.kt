@@ -45,14 +45,15 @@ object Normalize {
         val wRank = graph.getNode(origTarget)?.rank ?: return
         val edgeLabel = edgeData
         val labelRank = edgeLabel.labelRank
+        val name = edgeData.name  // 保留原始 name（对标 JS: var name = e.name）
 
         var vRank = vRankStart
 
         // 如果边只跨 1 rank，不需要拆分
         if (wRank == vRank + 1) return
 
-        // 移除原始边
-        graph.removeEdge(origSource, origTarget)
+        // 移除原始边 — 传递 name 确保精确移除
+        graph.removeEdge(origSource, origTarget, name)
 
         var i = 0
         vRank++
@@ -65,7 +66,7 @@ object Normalize {
                 height = 0.0,
                 dummy = "edge",
                 edgeLabel = edgeLabel,
-                edgeObj = Graph.EdgeKey(origSource, origTarget),
+                edgeObj = Graph.EdgeKey(origSource, origTarget, name),  // 包含 name
                 rank = vRank
             )
 
@@ -81,12 +82,12 @@ object Normalize {
             attrs.extra["id"] = dummy
             graph.setNode(dummy, attrs.copy(id = dummy))
 
-            // 设置从 v 到 dummy 的边
+            // 设置从 v 到 dummy 的边 — 传递 name
             graph.setEdge(v, dummy, Graph.EdgeData(
                 source = v,
                 target = dummy,
                 weight = edgeLabel.weight
-            ))
+            ), name)
 
             if (i == 0) {
                 graph.dummyChains.add(dummy)
@@ -97,12 +98,12 @@ object Normalize {
             vRank++
         }
 
-        // 从最后一个 dummy 到目标节点
+        // 从最后一个 dummy 到目标节点 — 传递 name
         graph.setEdge(v, origTarget, Graph.EdgeData(
             source = v,
             target = origTarget,
             weight = edgeLabel.weight
-        ))
+        ), name)
     }
 
     /**
@@ -118,8 +119,8 @@ object Normalize {
             val origLabel = node.edgeLabel ?: continue
             val edgeObj = node.edgeObj ?: continue
 
-            // 恢复原始边
-            graph.setEdge(edgeObj.v, edgeObj.w, origLabel)
+            // 恢复原始边 — 使用 edgeObj 中的 name（对标 JS: g.setEdge(node.edgeObj, origLabel)）
+            graph.setEdge(edgeObj.v, edgeObj.w, origLabel, edgeObj.name)
 
             // 遍历 dummy 链，收集坐标
             while (node.dummy != null) {
