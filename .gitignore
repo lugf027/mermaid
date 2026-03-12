@@ -18,3 +18,5 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
+
+mermaid-eval/src/jvmMain/resources/files/mmd/flowchart/*.svg
