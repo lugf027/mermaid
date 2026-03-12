@@ -19,4 +19,4 @@ captures
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
 
-mermaid-eval/src/jvmMain/resources/files/mmd/*/*.svg
+mermaid-eval/src/jvmMain/resources/files/mmd/**/*.svg
