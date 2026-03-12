@@ -34,6 +34,7 @@ plugins {
 
 include(":mermaid-core")
 include(":mermaid-cli")
+include(":mermaid-eval")
 include(":example:shared")
 include(":example:androidApp")
 include(":example:desktopApp")
