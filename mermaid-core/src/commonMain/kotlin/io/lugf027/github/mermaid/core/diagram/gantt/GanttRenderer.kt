@@ -10,6 +10,7 @@ import io.lugf027.github.mermaid.core.util.Logger
 import io.lugf027.github.mermaid.core.util.TextUtils
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToLong
 
 /**
  * 甘特图渲染器 - 对标 mermaid-js ganttRenderer.js
@@ -233,7 +234,7 @@ class GanttRenderer : DiagramRenderer {
 
             gridGroup.group {
                 addClass("tick")
-                attr("transform", "translate(${"%.1f".format(x)}, 0)")
+                attr("transform", "translate(${formatDecimal(x, 1)}, 0)")
 
                 // 网格线
                 line(0.0, 0.0, 0.0, tickSize) {
@@ -266,7 +267,7 @@ class GanttRenderer : DiagramRenderer {
 
                 topGridGroup.group {
                     addClass("tick")
-                    attr("transform", "translate(${"%.1f".format(x)}, 0)")
+                    attr("transform", "translate(${formatDecimal(x, 1)}, 0)")
 
                     text(formatAxisLabel(tickTime, ganttDb.getAxisFormat()), 0.0, -5.0) {
                         attr("text-anchor", "middle")
@@ -348,8 +349,8 @@ class GanttRenderer : DiagramRenderer {
                     attr("ry", "3")
                     addClass(taskClass)
                     attr("transform", "rotate(45)")
-                    attr("transform-origin", "${"%.1f".format(transformOriginX)} ${"%.1f".format(transformOriginY)}")
-                    attr("style", "transform: rotate(45deg) scale(0.8, 0.8); transform-origin: ${"%.1f".format(transformOriginX)}px ${"%.1f".format(transformOriginY)}px;")
+                    attr("transform-origin", "${formatDecimal(transformOriginX, 1)} ${formatDecimal(transformOriginY, 1)}")
+                    attr("style", "transform: rotate(45deg) scale(0.8, 0.8); transform-origin: ${formatDecimal(transformOriginX, 1)}px ${formatDecimal(transformOriginY, 1)}px;")
                 }
             } else {
                 // 普通任务条
@@ -674,5 +675,22 @@ class GanttRenderer : DiagramRenderer {
 
     companion object {
         private val RE_TICK_INTERVAL = Regex("^([1-9]\\d*)(millisecond|second|minute|hour|day|week|month)$")
+
+        /** 跨平台兼容的小数格式化（替代 JVM-only 的 String.format） */
+        private fun formatDecimal(value: Double, decimals: Int): String {
+            val factor = when (decimals) {
+                1 -> 10L
+                2 -> 100L
+                3 -> 1000L
+                else -> {
+                    var f = 1L; repeat(decimals) { f *= 10 }; f
+                }
+            }
+            val rounded = (value * factor).roundToLong()
+            val intPart = rounded / factor
+            val fracPart = kotlin.math.abs(rounded % factor)
+            val sign = if (value < 0 && intPart == 0L) "-" else ""
+            return "$sign$intPart.${fracPart.toString().padStart(decimals, '0')}"
+        }
     }
 }
