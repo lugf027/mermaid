@@ -11,6 +11,7 @@ import io.lugf027.github.mermaid.core.util.TextUtils
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToLong
 
 /**
  * 时序图渲染器 - 对标 mermaid-js sequenceRenderer.ts + svgDraw.js
@@ -46,6 +47,23 @@ class SequenceRenderer : DiagramRenderer {
         const val DEFAULT_ACTOR_FONT_SIZE = 14.0
         const val DEFAULT_NOTE_FONT_SIZE = 14.0
         const val DEFAULT_MESSAGE_FONT_SIZE = 16.0
+
+        /** 跨平台兼容的小数格式化（替代 JVM-only 的 String.format） */
+        fun formatDecimal(value: Double, decimals: Int): String {
+            val factor = when (decimals) {
+                1 -> 10L
+                2 -> 100L
+                3 -> 1000L
+                else -> {
+                    var f = 1L; repeat(decimals) { f *= 10 }; f
+                }
+            }
+            val rounded = (value * factor).roundToLong()
+            val intPart = rounded / factor
+            val fracPart = kotlin.math.abs(rounded % factor)
+            val sign = if (value < 0 && intPart == 0L) "-" else ""
+            return "$sign$intPart.${fracPart.toString().padStart(decimals, '0')}"
+        }
     }
 
     override fun draw(
@@ -599,10 +617,10 @@ class SequenceRenderer : DiagramRenderer {
             val lineClass = if (isDotted) "messageLine1" else "messageLine0"
 
             // U 型自引用路径
-            val pathD = "M ${"%.2f".format(x)},${"%.2f".format(y)} " +
-                "L ${"%.2f".format(x + selfWidth)},${"%.2f".format(y)} " +
-                "L ${"%.2f".format(x + selfWidth)},${"%.2f".format(y + selfHeight)} " +
-                "L ${"%.2f".format(x)},${"%.2f".format(y + selfHeight)}"
+            val pathD = "M ${formatDecimal(x, 2)},${formatDecimal(y, 2)} " +
+                "L ${formatDecimal(x + selfWidth, 2)},${formatDecimal(y, 2)} " +
+                "L ${formatDecimal(x + selfWidth, 2)},${formatDecimal(y + selfHeight, 2)} " +
+                "L ${formatDecimal(x, 2)},${formatDecimal(y + selfHeight, 2)}"
 
             path(pathD) {
                 addClass(lineClass)
@@ -651,7 +669,7 @@ class SequenceRenderer : DiagramRenderer {
 
             // 折角效果
             val foldSize = 7.0
-            path("M ${x + width - foldSize},$y L ${x + width},${"%.2f".format(y + foldSize)}") {
+            path("M ${x + width - foldSize},$y L ${x + width},${formatDecimal(y + foldSize, 2)}") {
                 attr("stroke", tv.noteBorderColor)
                 attr("fill", "none")
             }

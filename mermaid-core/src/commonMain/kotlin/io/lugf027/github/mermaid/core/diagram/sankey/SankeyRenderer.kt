@@ -125,8 +125,8 @@ class SankeyRenderer : DiagramRenderer {
                         val tgtLayout = nodeLayouts[link.target] ?: continue
 
                         val linkHeight = link.value * scale
-                        val srcOffset = sourceOffsets.getOrDefault(link.source, 0.0)
-                        val tgtOffset = targetOffsets.getOrDefault(link.target, 0.0)
+                        val srcOffset = sourceOffsets[link.source] ?: 0.0
+                        val tgtOffset = targetOffsets[link.target] ?: 0.0
 
                         val sy = srcLayout.y + srcOffset + linkHeight / 2
                         val ty = tgtLayout.y + tgtOffset + linkHeight / 2
