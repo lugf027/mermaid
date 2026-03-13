@@ -18,5 +18,3 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
-compare-tools/output/
-compare-tools/dist/
