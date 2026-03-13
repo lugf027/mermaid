@@ -1,0 +1,11 @@
+stateDiagram-v2
+    direction LR
+    [*] --> A
+    A --> B : go
+    B --> C : next
+    state check <<choice>>
+    C --> check
+    check --> D : if yes
+    check --> E : if no
+    D --> [*]
+    E --> [*]

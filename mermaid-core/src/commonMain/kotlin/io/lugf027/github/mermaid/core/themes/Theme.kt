@@ -82,8 +82,12 @@ data class ThemeVariables(
     val signalColor: String = "#333",
     val signalTextColor: String = "#333",
     val loopTextColor: String = "#333",
+    val labelBoxBorderColor: String = "#326932",
+    val labelBoxBkgColor: String = "oldlace",
 
     // 甘特图特定
+    val excludeBkgColor: String = "#eeeeee",
+    val gridColor: String = "lightgrey",
     val sectionBkgColor: String = "rgba(102, 102, 255, 0.49)",
     val altSectionBkgColor: String = "white",
     val sectionBkgColor2: String = "#EAE8D9",

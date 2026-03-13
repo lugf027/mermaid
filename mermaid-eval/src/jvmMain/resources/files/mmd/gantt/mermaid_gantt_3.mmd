@@ -1,0 +1,11 @@
+gantt
+    title Project with Dependencies
+    dateFormat YYYY-MM-DD
+    section Planning
+    Requirements :req1, 2024-01-01, 5d
+    Architecture :arch1, after req1, 7d
+    section Implementation
+    Backend      :back1, after arch1, 14d
+    Frontend     :front1, after arch1, 10d
+    section Testing
+    Integration  :test1, after back1, 5d

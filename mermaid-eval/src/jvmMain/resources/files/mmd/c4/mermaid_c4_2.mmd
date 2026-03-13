@@ -1,0 +1,10 @@
+C4Container
+    Person(customer, "Customer", "A customer")
+    Container_Boundary(c1, "Banking System") {
+        Container(webApp, "Web Application", "Java, Spring MVC", "Delivers content")
+        ContainerDb(database, "Database", "PostgreSQL", "Stores information")
+        Container(api, "API", "Java, Spring Boot", "Provides API")
+    }
+    Rel(customer, webApp, "Uses", "HTTPS")
+    Rel(webApp, api, "Calls", "JSON/HTTPS")
+    Rel(api, database, "Reads/Writes", "JDBC")

@@ -1,0 +1,9 @@
+architecture-beta
+group cloud[Cloud Services]
+
+service api(server)[API Gateway] in cloud
+service db(database)[PostgreSQL] in cloud
+service cache(database)[Redis Cache] in cloud
+
+api:R --> L:db
+api:B --> T:cache

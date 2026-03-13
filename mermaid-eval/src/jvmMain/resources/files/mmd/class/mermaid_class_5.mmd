@@ -1,0 +1,18 @@
+classDiagram
+    direction LR
+    class Vehicle {
+        <<abstract>>
+        +String make
+        +String model
+        +start()
+        +stop()
+    }
+    class Car {
+        +int doors
+    }
+    class Truck {
+        +double payload
+    }
+    Vehicle <|-- Car
+    Vehicle <|-- Truck
+    note for Vehicle "Base class for all vehicles"

@@ -1,0 +1,9 @@
+classDiagram
+    Customer "1" --> "*" Order : places
+    Order "1" --> "1..*" LineItem : contains
+    Customer : +String name
+    Customer : +String address
+    Order : +Date orderDate
+    Order : +double total
+    LineItem : +int quantity
+    LineItem : +double price

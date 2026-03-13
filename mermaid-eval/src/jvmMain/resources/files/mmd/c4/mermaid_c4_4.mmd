@@ -1,0 +1,12 @@
+C4Context
+    Enterprise_Boundary(b0, "Company") {
+        Person(user, "User", "Employee")
+        System_Boundary(b1, "Internal Systems") {
+            System(sys1, "HR System", "Manages HR")
+            System(sys2, "IT System", "Manages IT")
+        }
+    }
+    System_Ext(ext, "External SaaS", "Cloud service")
+    Rel(user, sys1, "Uses")
+    Rel(user, sys2, "Uses")
+    Rel(sys2, ext, "Integrates", "API")

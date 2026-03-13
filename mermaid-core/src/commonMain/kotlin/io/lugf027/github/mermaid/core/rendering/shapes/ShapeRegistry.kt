@@ -70,5 +70,22 @@ object ShapeRegistry {
         register("rectangle", BasicShapes::squareRect)
         register("round", BasicShapes::roundedRect)
         register("rhombus", BasicShapes::diamond)
+
+        // 类图形状
+        register("classBox", DiagramShapes::classBox)
+
+        // 状态图形状
+        register("stateStart", DiagramShapes::stateStart)
+        register("stateEnd", DiagramShapes::stateEnd)
+        register("fork", DiagramShapes::forkJoin)
+        register("join", DiagramShapes::forkJoin)
+        register("divider", DiagramShapes::divider)
+        register("rectWithTitle", DiagramShapes::rectWithTitle)
+
+        // 注释形状（共用）
+        register("note", DiagramShapes::note)
+
+        // ER 图形状
+        register("erBox", DiagramShapes::erBox)
     }
 }

@@ -1,0 +1,13 @@
+stateDiagram-v2
+    [*] --> First
+    First --> Second
+    First --> Third
+    state fork_state <<fork>>
+    Second --> fork_state
+    fork_state --> Fourth
+    fork_state --> Fifth
+    state join_state <<join>>
+    Fourth --> join_state
+    Fifth --> join_state
+    join_state --> Sixth
+    Sixth --> [*]

@@ -1,9 +1,29 @@
 package io.lugf027.github.mermaid.core.diagram
 
 import io.lugf027.github.mermaid.core.detect.DetectorRegistry
+import io.lugf027.github.mermaid.core.diagram.classDiagram.ClassDiagram
+import io.lugf027.github.mermaid.core.diagram.er.ErDiagram
 import io.lugf027.github.mermaid.core.diagram.error.ErrorDiagram
 import io.lugf027.github.mermaid.core.diagram.flowchart.FlowchartDiagram
+import io.lugf027.github.mermaid.core.diagram.gantt.GanttDiagram
+import io.lugf027.github.mermaid.core.diagram.info.InfoDiagram
+import io.lugf027.github.mermaid.core.diagram.journey.JourneyDiagram
+import io.lugf027.github.mermaid.core.diagram.mindmap.MindmapDiagram
 import io.lugf027.github.mermaid.core.diagram.pie.PieDiagram
+import io.lugf027.github.mermaid.core.diagram.sequence.SequenceDiagram
+import io.lugf027.github.mermaid.core.diagram.stateDiagram.StateDiagram
+import io.lugf027.github.mermaid.core.diagram.timeline.TimelineDiagram
+import io.lugf027.github.mermaid.core.diagram.gitGraph.GitGraphDiagram
+import io.lugf027.github.mermaid.core.diagram.c4.C4Diagram
+import io.lugf027.github.mermaid.core.diagram.block.BlockDiagram
+import io.lugf027.github.mermaid.core.diagram.quadrantChart.QuadrantDiagram
+import io.lugf027.github.mermaid.core.diagram.xychart.XYChartDiagram
+import io.lugf027.github.mermaid.core.diagram.sankey.SankeyDiagram
+import io.lugf027.github.mermaid.core.diagram.radar.RadarDiagram
+import io.lugf027.github.mermaid.core.diagram.requirement.RequirementDiagram
+import io.lugf027.github.mermaid.core.diagram.packet.PacketDiagram
+import io.lugf027.github.mermaid.core.diagram.kanban.KanbanDiagram
+import io.lugf027.github.mermaid.core.diagram.architecture.ArchitectureDiagram
 import io.lugf027.github.mermaid.core.util.Logger
 
 /**
@@ -74,12 +94,97 @@ object DiagramOrchestration {
         val errorDef = ErrorDiagram.definition()
         DiagramRegistry.register(errorDef)
 
-        // --- 第二批（待实现）---
-        // sequence, class, state, er, gantt
+        // --- 第二批 ---
 
-        // --- 第三批（待实现）---
-        // gitGraph, info, journey, c4, mindmap, timeline, sankey,
-        // quadrantChart, xychart, requirement, block, packet,
-        // kanban, architecture, radar, ishikawa, venn, treemap
+        // Sequence
+        val sequenceDef = SequenceDiagram.definition()
+        DiagramRegistry.register(sequenceDef)
+
+        // ClassDiagram
+        val classDef = ClassDiagram.definition()
+        DiagramRegistry.register(classDef)
+
+        // StateDiagram
+        val stateDef = StateDiagram.definition()
+        DiagramRegistry.register(stateDef)
+
+        // ER Diagram
+        val erDef = ErDiagram.definition()
+        DiagramRegistry.register(erDef)
+
+        // Gantt
+        val ganttDef = GanttDiagram.definition()
+        DiagramRegistry.register(ganttDef)
+
+        // --- 第三批 3a ---
+
+        // Info
+        val infoDef = InfoDiagram.definition()
+        DiagramRegistry.register(infoDef)
+
+        // Journey
+        val journeyDef = JourneyDiagram.definition()
+        DiagramRegistry.register(journeyDef)
+
+        // Mindmap
+        val mindmapDef = MindmapDiagram.definition()
+        DiagramRegistry.register(mindmapDef)
+
+        // Timeline
+        val timelineDef = TimelineDiagram.definition()
+        DiagramRegistry.register(timelineDef)
+
+        // --- 第三批 3b ---
+
+        // GitGraph
+        val gitGraphDef = GitGraphDiagram.definition()
+        DiagramRegistry.register(gitGraphDef)
+
+        // C4
+        val c4Def = C4Diagram.definition()
+        DiagramRegistry.register(c4Def)
+
+        // Block
+        val blockDef = BlockDiagram.definition()
+        DiagramRegistry.register(blockDef)
+
+        // --- 第三批 3c ---
+
+        // QuadrantChart
+        val quadrantDef = QuadrantDiagram.definition()
+        DiagramRegistry.register(quadrantDef)
+
+        // XYChart
+        val xyChartDef = XYChartDiagram.definition()
+        DiagramRegistry.register(xyChartDef)
+
+        // Sankey
+        val sankeyDef = SankeyDiagram.definition()
+        DiagramRegistry.register(sankeyDef)
+
+        // Radar
+        val radarDef = RadarDiagram.definition()
+        DiagramRegistry.register(radarDef)
+
+        // --- 第三批 3d ---
+
+        // Requirement
+        val requirementDef = RequirementDiagram.definition()
+        DiagramRegistry.register(requirementDef)
+
+        // Packet
+        val packetDef = PacketDiagram.definition()
+        DiagramRegistry.register(packetDef)
+
+        // Kanban
+        val kanbanDef = KanbanDiagram.definition()
+        DiagramRegistry.register(kanbanDef)
+
+        // Architecture
+        val archDef = ArchitectureDiagram.definition()
+        DiagramRegistry.register(archDef)
+
+        // --- 第三批 3e（待实现）---
+        // ishikawa, venn, treemap, flowchart-elk
     }
 }

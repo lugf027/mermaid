@@ -1,0 +1,11 @@
+gantt
+    title Milestone Chart
+    dateFormat YYYY-MM-DD
+    excludes weekends
+    section Phase 1
+    Design       :done, p1, 2024-01-01, 2024-01-12
+    Review       :milestone, m1, 2024-01-12, 0d
+    section Phase 2
+    Implement    :active, p2, after m1, 10d
+    Deploy       :crit, p3, after p2, 3d
+    Release      :milestone, m2, after p3, 0d
