@@ -388,55 +388,32 @@ class FlowRenderer : DiagramRenderer {
                 drawLine(lineColor, drawPoints[0], drawPoints[1], strokeWidth = sw)
             }
         } else {
-            // 带圆角的折线路径（精确匹配 mermaid-js generateRoundedPath(points, 5)）
-            val radius = 5f * scale
-            val epsilon = 1e-5f
+            // 带圆角的折线路径
+            val cornerRadius = 5f * scale
             val path = Path()
             path.moveTo(drawPoints[0].x, drawPoints[0].y)
             for (i in 1 until drawPoints.size - 1) {
                 val prev = drawPoints[i - 1]
                 val curr = drawPoints[i]
                 val next = drawPoints[i + 1]
-
+                // 从 prev→curr 方向计算拐角裁剪
                 val dx1 = curr.x - prev.x; val dy1 = curr.y - prev.y
                 val len1 = kotlin.math.sqrt(dx1 * dx1 + dy1 * dy1)
                 val dx2 = next.x - curr.x; val dy2 = next.y - curr.y
                 val len2 = kotlin.math.sqrt(dx2 * dx2 + dy2 * dy2)
-
-                if (len1 < epsilon || len2 < epsilon) {
+                val r = minOf(cornerRadius, len1 / 2f, len2 / 2f)
+                if (r > 0.5f && len1 > 0.001f && len2 > 0.001f) {
+                    // 拐角前的点
+                    val bx = curr.x - dx1 / len1 * r
+                    val by = curr.y - dy1 / len1 * r
+                    // 拐角后的点
+                    val ax = curr.x + dx2 / len2 * r
+                    val ay = curr.y + dy2 / len2 * r
+                    path.lineTo(bx, by)
+                    path.quadraticBezierTo(curr.x, curr.y, ax, ay)
+                } else {
                     path.lineTo(curr.x, curr.y)
-                    continue
                 }
-
-                // 标准化向量
-                val nx1 = dx1 / len1; val ny1 = dy1 / len1
-                val nx2 = dx2 / len2; val ny2 = dy2 / len2
-
-                // 计算两段之间的角度
-                val dot = (nx1 * nx2 + ny1 * ny2).coerceIn(-1f, 1f)
-                val angle = kotlin.math.acos(dot)
-
-                // 角度太小或接近 180°（几乎直线）则跳过圆角
-                if (angle < epsilon || kotlin.math.abs(PI.toFloat() - angle) < epsilon) {
-                    path.lineTo(curr.x, curr.y)
-                    continue
-                }
-
-                // mermaid-js: cutLen = min(radius / sin(angle/2), len1/2, len2/2)
-                val cutLen = minOf(
-                    radius / sin((angle / 2f).toDouble()).toFloat(),
-                    len1 / 2f,
-                    len2 / 2f,
-                )
-
-                // 圆角起始点和结束点
-                val startX = curr.x - nx1 * cutLen
-                val startY = curr.y - ny1 * cutLen
-                val endX = curr.x + nx2 * cutLen
-                val endY = curr.y + ny2 * cutLen
-
-                path.lineTo(startX, startY)
-                path.quadraticBezierTo(curr.x, curr.y, endX, endY)
             }
             path.lineTo(drawPoints.last().x, drawPoints.last().y)
             if (pathEffect != null) {
