@@ -222,8 +222,8 @@ class FlowRenderer : DiagramRenderer {
 
         when (node.shape) {
             ShapeId.ROUNDED_RECT -> {
-                // mermaid-js roundedRect.ts: rx=5, ry=5（固定值）
-                val cr = androidx.compose.ui.geometry.CornerRadius(5f * scale)
+                // mermaid-js 的 () 形状：较大的圆角
+                val cr = androidx.compose.ui.geometry.CornerRadius(height * 0.25f)
                 drawRoundRect(bgColor, Offset(left, top), Size(width, height), cr)
                 drawRoundRect(borderColor, Offset(left, top), Size(width, height), cr, style = Stroke(sw))
             }
@@ -363,26 +363,12 @@ class FlowRenderer : DiagramRenderer {
         val tgtEdge = edgePointForShape(tgtCenter, tgtDir, tgtHalfW, tgtHalfH, tgtNode.shape)
 
         // 构建实际绘制路径：替换首尾点为边界交点
-        // 应用 marker offset（匹配 mermaid-js applyMarkerOffsetsToPoints）
-        // mermaid-js: arrow_point marker offset = 4，将路径端点沿入射方向缩短 4px
-        val markerOffset = 4f * scale
-        val adjustedSrcEdge = if (edge.arrowTypeStart != EdgeType.ARROW_NONE && pathPoints.size >= 2) {
-            val dir = pathPoints[1]
-            val a = atan2((dir.y - srcEdge.y).toDouble(), (dir.x - srcEdge.x).toDouble())
-            Offset(srcEdge.x + (markerOffset * cos(a)).toFloat(), srcEdge.y + (markerOffset * sin(a)).toFloat())
-        } else srcEdge
-        val adjustedTgtEdge = if (edge.arrowTypeEnd != EdgeType.ARROW_NONE && pathPoints.size >= 2) {
-            val prevPt = pathPoints[pathPoints.size - 2]
-            val a = atan2((prevPt.y - tgtEdge.y).toDouble(), (prevPt.x - tgtEdge.x).toDouble())
-            Offset(tgtEdge.x + (markerOffset * cos(a)).toFloat(), tgtEdge.y + (markerOffset * sin(a)).toFloat())
-        } else tgtEdge
-
         val drawPoints = mutableListOf<Offset>()
-        drawPoints.add(adjustedSrcEdge)
+        drawPoints.add(srcEdge)
         for (i in 1 until pathPoints.size - 1) {
             drawPoints.add(pathPoints[i])
         }
-        drawPoints.add(adjustedTgtEdge)
+        drawPoints.add(tgtEdge)
 
         // 线条
         val sw = when (edge.stroke) {
@@ -460,14 +446,16 @@ class FlowRenderer : DiagramRenderer {
             }
         }
 
-        // 箭头 — 尖端在原始边界点上（不受 marker offset 影响）
+        // 箭头
         if (edge.arrowTypeEnd != EdgeType.ARROW_NONE && drawPoints.size >= 2) {
+            val tip = drawPoints.last()
             val from = drawPoints[drawPoints.size - 2]
-            drawArrowHead(tgtEdge, from, tgtEdge, ARROW_HEAD_SIZE * scale, lineColor)
+            drawArrowHead(tip, from, tip, ARROW_HEAD_SIZE * scale, lineColor)
         }
         if (edge.arrowTypeStart != EdgeType.ARROW_NONE && drawPoints.size >= 2) {
+            val tip = drawPoints.first()
             val from = drawPoints[1]
-            drawArrowHead(srcEdge, from, srcEdge, ARROW_HEAD_SIZE * scale, lineColor)
+            drawArrowHead(tip, from, tip, ARROW_HEAD_SIZE * scale, lineColor)
         }
 
         // 标签 — 居中在路径上
@@ -491,11 +479,8 @@ class FlowRenderer : DiagramRenderer {
                 lx - bgRect.width / 2f,
                 ly - bgRect.height / 2f,
             )
-            // mermaid-js: edgeLabelBackground='rgba(232,232,232,0.8)', rect { opacity: 0.5 }
-            // 等效 alpha ≈ 0.8 * 0.5 = 0.4，但 KMP 的 edgeLabelBackground 是 #e8e8e8 (alpha=1.0)
-            // 所以使用 alpha=0.5 来接近 mermaid-js 的视觉效果
-            val baseBgColor = theme.edgeLabelBackground.toComposeColor()
-            val labelBgColor = baseBgColor.copy(alpha = baseBgColor.alpha * 0.5f)
+            // mermaid-js: .edgeLabel rect { opacity: 0.5 }
+            val labelBgColor = theme.edgeLabelBackground.toComposeColor().copy(alpha = 0.5f)
             drawRoundRect(
                 labelBgColor,
                 bgOffset,

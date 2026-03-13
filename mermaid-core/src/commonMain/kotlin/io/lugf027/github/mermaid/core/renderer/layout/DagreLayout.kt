@@ -23,27 +23,6 @@ class DagreLayout : LayoutEngine {
         private const val DEFAULT_NODE_HEIGHT = 40f
     }
 
-    /**
-     * 虚拟节点信息，用于 normalize/denormalize 边。
-     * dagre 的 normalize.js 会为跨越 >1 层的边插入虚拟节点。
-     */
-    private data class DummyNode(
-        val id: String,
-        var rank: Int,
-        var x: Float = 0f,
-        var y: Float = 0f,
-        val width: Float = 0f,
-        val height: Float = 0f,
-    )
-
-    /**
-     * 记录一条原始边被拆分后的虚拟节点链。
-     */
-    private data class DummyChain(
-        val originalEdge: Edge,
-        val dummyIds: List<String>,
-    )
-
     override fun layout(data: LayoutData): RenderData {
         if (data.nodes.isEmpty()) {
             return RenderData(emptyList(), emptyList(), emptyList(), Bounds())
@@ -78,104 +57,39 @@ class DagreLayout : LayoutEngine {
             ranks.forEach { (k, v) -> ranks[k] = maxRank - v }
         }
 
-        // ─── 1.5 makeSpaceForEdgeLabels ─────────────────────────
-        // dagre layout.js: graph.ranksep /= 2; edge.minlen *= 2
-        // 将 ranksep 减半，同时所有 rank 翻倍。这样每条边至少跨 2 层，
-        // 中间层用于放虚拟节点（为 edge label 留空间），但总间距保持不变。
-        val effectiveRankSep = rankSep / 2f
-        ranks.forEach { (k, v) -> ranks[k] = v * 2 }
-
-        // ─── 1.6 Normalize: 插入虚拟节点 ────────────────────────
-        // dagre normalize.js: 对跨越 >1 层的边，在中间每层插入虚拟节点。
-        // 翻倍 rank 后，原来相邻的节点现在相隔 2 层，中间空出 1 层放虚拟节点。
-        val dummyNodes = mutableMapOf<String, DummyNode>()
-        val dummyChains = mutableListOf<DummyChain>()
-        var dummyCounter = 0
-        // 扩展邻接表以包含虚拟节点
-        val extAdj = mutableMapOf<String, MutableList<String>>()
-        val extRevAdj = mutableMapOf<String, MutableList<String>>()
-        adjacency.forEach { (k, v) -> extAdj[k] = v.toMutableList() }
-        reverseAdj.forEach { (k, v) -> extRevAdj[k] = v.toMutableList() }
-
-        for (edge in data.edges) {
-            val srcRank = ranks[edge.start] ?: continue
-            val tgtRank = ranks[edge.end] ?: continue
-            val span = tgtRank - srcRank
-            if (span <= 1) continue  // 相邻层不需要虚拟节点
-
-            // 从原始邻接表中移除直接连接
-            extAdj[edge.start]?.remove(edge.end)
-            extRevAdj[edge.end]?.remove(edge.start)
-
-            val dummyIds = mutableListOf<String>()
-            var prevId = edge.start
-            for (r in srcRank + 1 until tgtRank) {
-                val dId = "_dummy_${dummyCounter++}"
-                dummyNodes[dId] = DummyNode(id = dId, rank = r)
-                dummyIds.add(dId)
-                ranks[dId] = r
-                // 连接 prev → dummy
-                extAdj.getOrPut(prevId) { mutableListOf() }.add(dId)
-                extRevAdj.getOrPut(dId) { mutableListOf() }.add(prevId)
-                prevId = dId
-            }
-            // 连接最后一个 dummy → target
-            extAdj.getOrPut(prevId) { mutableListOf() }.add(edge.end)
-            extRevAdj.getOrPut(edge.end) { mutableListOf() }.add(prevId)
-
-            dummyChains.add(DummyChain(edge, dummyIds))
-        }
-
         // ─── 2. Ordering (层内排序 - 重心法) ────────────────────
         val layers = buildLayers(ranks)
-        orderLayers(layers, extAdj, extRevAdj)
+        orderLayers(layers, adjacency, reverseAdj)
 
         // ─── 3. Coordinate Assignment ──────────────────────────
-        adjForLayout = extAdj
-        reverseAdjForLayout = extRevAdj
-        assignCoordinatesWithDummies(layers, nodeMap, dummyNodes, nodeSep, effectiveRankSep, isHorizontal)
+        // 缓存邻接表供 assignCoordinates 使用
+        adjForLayout = adjacency
+        reverseAdjForLayout = reverseAdj
+        assignCoordinates(layers, nodeMap, nodeSep, rankSep, isHorizontal)
 
-        // ─── 4. Denormalize: 收集虚拟节点坐标为 edge.points ───
-        // 记录哪些边有虚拟链
-        val chainMap = mutableMapOf<String, DummyChain>()  // key = "start->end"
-        for (chain in dummyChains) {
-            chainMap["${chain.originalEdge.start}->${chain.originalEdge.end}"] = chain
-        }
-
+        // 构建渲染结果
         val resultNodes = nodeMap.values.toList()
         val resultEdges = data.edges.map { edge ->
             val startNode = nodeMap[edge.start]
             val endNode = nodeMap[edge.end]
             if (startNode != null && endNode != null) {
-                val chain = chainMap["${edge.start}->${edge.end}"]
-                val points = if (chain != null) {
-                    // 有虚拟节点链 → 收集虚拟节点坐标
-                    // dagre: edge.points = [srcCenter, ...dummyPositions, tgtCenter]
-                    val pts = mutableListOf(Point(startNode.x, startNode.y))
-                    for (dId in chain.dummyIds) {
-                        val dn = dummyNodes[dId] ?: continue
-                        pts.add(Point(dn.x, dn.y))
-                    }
-                    pts.add(Point(endNode.x, endNode.y))
-                    pts
-                } else {
-                    // 没有虚拟节点（相邻层）→ 直接 [src, tgt]
-                    // dagre 的 assignNodeIntersects 会处理
-                    listOf(Point(startNode.x, startNode.y), Point(endNode.x, endNode.y))
-                }
-
-                val labelPos = if (edge.label.isNotEmpty() && points.size >= 2) {
-                    val midIdx = points.size / 2
-                    if (points.size % 2 == 0) {
-                        val a = points[midIdx - 1]
-                        val b = points[midIdx]
-                        Point((a.x + b.x) / 2f, (a.y + b.y) / 2f)
-                    } else points[midIdx]
+                val points = computeEdgePoints(startNode, endNode, isHorizontal, rankSep)
+                val labelPos = if (edge.label.isNotEmpty()) {
+                    // 标签放在路径的中间点
+                    if (points.size >= 2) {
+                        val midIdx = points.size / 2
+                        if (points.size % 2 == 0) {
+                            val a = points[midIdx - 1]
+                            val b = points[midIdx]
+                            Point((a.x + b.x) / 2f, (a.y + b.y) / 2f)
+                        } else points[midIdx]
+                    } else points.first()
                 } else null
                 edge.copy(points = points, labelPos = labelPos)
             } else edge
         }
 
+        // 计算总边界
         val bounds = calculateBounds(resultNodes)
 
         return RenderData(
@@ -270,77 +184,62 @@ class DagreLayout : LayoutEngine {
     }
 
     /**
-     * 分配节点坐标（包含虚拟节点）。
+     * 分配节点坐标。
      * 三阶段：
      * 1) 初始居中布局（每层节点居中对齐）
      * 2) 向下扫描：将节点对齐到其父节点的中心
      * 3) 向上扫描：将节点对齐到其子节点的中心
      * 匹配 dagre/Sugiyama 的 Brandes-Köpf 坐标分配思路。
-     *
-     * 虚拟节点宽度/高度为 0，参与横向位置计算但不影响层高。
      */
-    private fun assignCoordinatesWithDummies(
+    private fun assignCoordinates(
         layers: List<List<String>>,
         nodeMap: MutableMap<String, Node>,
-        dummyNodes: MutableMap<String, DummyNode>,
         nodeSep: Float,
         rankSep: Float,
         isHorizontal: Boolean,
     ) {
+        // mermaid-js dagre 使用 marginx=8, marginy=8
         val padding = 8f
-        // dagre 的 edgeSep 默认为 10，虚拟节点之间或虚拟与真实节点之间使用 edgeSep
-        val edgeSep = DEFAULT_EDGE_SEP
 
         // 帮助函数：获取节点在 pos 方向的尺寸
         fun nodeSize(nodeId: String): Float {
-            if (nodeId.startsWith("_dummy_")) return 0f
             val node = nodeMap[nodeId] ?: return 0f
             return if (isHorizontal) node.height else node.width
         }
 
-        // 判断节点是否是虚拟节点
-        fun isDummy(nodeId: String) = nodeId.startsWith("_dummy_")
-
-        // 获取两个相邻节点之间的间距（dagre: 虚拟节点间用 edgeSep，其他用 nodeSep）
-        fun sepBetween(a: String, b: String): Float {
-            return if (isDummy(a) || isDummy(b)) edgeSep else nodeSep
-        }
-
-        // 计算每层的 maxCross（rank 方向最大尺寸，虚拟节点层高度为 0）
+        // 计算每层的 maxCross（rank 方向最大尺寸）
         val layerMaxCross = layers.map { layer ->
             layer.maxOfOrNull { id ->
-                if (isDummy(id)) return@maxOfOrNull 0f
                 val node = nodeMap[id] ?: return@maxOfOrNull 0f
                 if (isHorizontal) node.width else node.height
             } ?: 0f
         }
 
-        // 阶段 1：初始布局 — 每层节点居中排列
+        // 阶段 1：初始布局 — 每层节点从左对齐开始
+        // 先计算每层的总宽度
         val layerWidths = layers.map { layer ->
             var total = 0f
-            for (i in layer.indices) {
-                total += nodeSize(layer[i])
-                if (i < layer.size - 1) total += sepBetween(layer[i], layer[i + 1])
-            }
+            for (id in layer) total += nodeSize(id) + nodeSep
+            if (layer.isNotEmpty()) total -= nodeSep
             total
         }
         val maxLayerWidth = layerWidths.maxOrNull() ?: 0f
 
+        // 记录每个节点的 pos（横向坐标）
         val posMap = mutableMapOf<String, Float>()
 
+        // 初始化：每层居中排列
         for ((layerIndex, layer) in layers.withIndex()) {
             val centeringOffset = (maxLayerWidth - layerWidths[layerIndex]) / 2f
             var offset = centeringOffset
-            for (i in layer.indices) {
-                val nodeId = layer[i]
+            for (nodeId in layer) {
                 val ns = nodeSize(nodeId)
                 posMap[nodeId] = offset + ns / 2f
-                offset += ns
-                if (i < layer.size - 1) offset += sepBetween(nodeId, layer[i + 1])
+                offset += ns + nodeSep
             }
         }
 
-        // 阶段 2：向下扫描 — 子节点对齐到父节点中心
+        // 阶段 2：向下扫描 — 子节点对齐到父节点中心（平均值）
         for (i in 1 until layers.size) {
             val layer = layers[i]
             for (nodeId in layer) {
@@ -348,13 +247,15 @@ class DagreLayout : LayoutEngine {
                 if (predecessors.isEmpty()) continue
                 val parentPositions = predecessors.mapNotNull { posMap[it] }
                 if (parentPositions.isNotEmpty()) {
-                    posMap[nodeId] = parentPositions.average().toFloat()
+                    val avg = parentPositions.average().toFloat()
+                    posMap[nodeId] = avg
                 }
             }
-            resolveOverlapsWithDummies(layer, posMap, nodeMap, dummyNodes, nodeSep, edgeSep, isHorizontal)
+            // 解决重叠：确保同层节点不重叠
+            resolveOverlaps(layer, posMap, nodeMap, nodeSep, isHorizontal)
         }
 
-        // 阶段 3：向上扫描 — 微调
+        // 阶段 3：向上扫描 — 微调，将父节点对齐到子节点中心（平均值）
         for (i in layers.size - 2 downTo 0) {
             val layer = layers[i]
             for (nodeId in layer) {
@@ -362,86 +263,137 @@ class DagreLayout : LayoutEngine {
                 if (successors.isEmpty()) continue
                 val childPositions = successors.mapNotNull { posMap[it] }
                 if (childPositions.isNotEmpty()) {
-                    posMap[nodeId] = childPositions.average().toFloat()
+                    val avg = childPositions.average().toFloat()
+                    posMap[nodeId] = avg
                 }
             }
-            resolveOverlapsWithDummies(layer, posMap, nodeMap, dummyNodes, nodeSep, edgeSep, isHorizontal)
+            resolveOverlaps(layer, posMap, nodeMap, nodeSep, isHorizontal)
         }
 
-        // 最终分配坐标到 Node 对象和虚拟节点
+        // 最终分配坐标到 Node 对象
         var rankOffset = 0f
         for ((layerIndex, layer) in layers.withIndex()) {
             val maxCross = layerMaxCross[layerIndex]
             for (nodeId in layer) {
+                val node = nodeMap[nodeId] ?: continue
                 val p = posMap[nodeId] ?: continue
-                if (isDummy(nodeId)) {
-                    val dn = dummyNodes[nodeId] ?: continue
-                    if (isHorizontal) {
-                        dn.x = rankOffset + padding + maxCross / 2f
-                        dn.y = p + padding
-                    } else {
-                        dn.x = p + padding
-                        dn.y = rankOffset + padding + maxCross / 2f
-                    }
+
+                if (isHorizontal) {
+                    node.x = rankOffset + padding + maxCross / 2f
+                    node.y = p + padding
                 } else {
-                    val node = nodeMap[nodeId] ?: continue
-                    if (isHorizontal) {
-                        node.x = rankOffset + padding + maxCross / 2f
-                        node.y = p + padding
-                    } else {
-                        node.x = p + padding
-                        node.y = rankOffset + padding + maxCross / 2f
-                    }
-                    nodeMap[nodeId] = node
+                    node.x = p + padding
+                    node.y = rankOffset + padding + maxCross / 2f
                 }
+                nodeMap[nodeId] = node
             }
             rankOffset += maxCross + rankSep
         }
     }
 
     /**
-     * 解决同层节点重叠（支持虚拟节点）。
-     * 虚拟节点宽度为 0，与其他节点之间使用 edgeSep。
+     * 解决同层节点重叠，然后重新居中。
+     * 1. 按当前 pos 排序，确保相邻节点之间至少有 nodeSep 间距
+     * 2. 将整层节点平移回中心位置，避免单方向推导致偏移
      */
-    private fun resolveOverlapsWithDummies(
+    private fun resolveOverlaps(
         layer: List<String>,
         posMap: MutableMap<String, Float>,
         nodeMap: Map<String, Node>,
-        dummyNodes: Map<String, DummyNode>,
         nodeSep: Float,
-        edgeSep: Float,
         isHorizontal: Boolean,
     ) {
         if (layer.size <= 1) return
 
-        fun isDummy(id: String) = id.startsWith("_dummy_")
-        fun sizeOf(id: String): Float {
-            if (isDummy(id)) return 0f
-            val node = nodeMap[id] ?: return 0f
-            return if (isHorizontal) node.height else node.width
-        }
-
         val sorted = layer.sortedBy { posMap[it] ?: 0f }
+
+        // 记录重叠解决前的中心
         val oldCenter = sorted.mapNotNull { posMap[it] }.average().toFloat()
 
+        // 向右推解决重叠
         for (i in 1 until sorted.size) {
             val prev = sorted[i - 1]
             val curr = sorted[i]
-            val prevSize = sizeOf(prev)
-            val currSize = sizeOf(curr)
-            val sep = if (isDummy(prev) || isDummy(curr)) edgeSep else nodeSep
+            val prevNode = nodeMap[prev] ?: continue
+            val currNode = nodeMap[curr] ?: continue
+            val prevSize = if (isHorizontal) prevNode.height else prevNode.width
+            val currSize = if (isHorizontal) currNode.height else currNode.width
             val prevPos = posMap[prev] ?: continue
             val currPos = posMap[curr] ?: continue
-            val minDist = prevSize / 2f + currSize / 2f + sep
+            val minDist = prevSize / 2f + currSize / 2f + nodeSep
             if (currPos - prevPos < minDist) {
                 posMap[curr] = prevPos + minDist
             }
         }
 
+        // 重叠解决后，将整层平移回原来的中心
         val newCenter = sorted.mapNotNull { posMap[it] }.average().toFloat()
         val shift = oldCenter - newCenter
         for (nodeId in sorted) {
             posMap[nodeId] = (posMap[nodeId] ?: 0f) + shift
+        }
+    }
+
+    /**
+     * 计算边的路径点（模拟 dagre 行为）。
+     *
+     * dagre 通过 makeSpaceForEdgeLabels 将 minlen*2，使所有边都会创建
+     * 虚拟节点（dummy node）。虚拟节点的坐标成为边的中间控制点。
+     *
+     * 对于 TB/BT 布局：
+     * - 同列节点（|dx| < 1）：3 个点（src → midPoint → tgt），midPoint 在正中间
+     * - 不同列节点：3 个点，midPoint 在两层中间，x = 目标节点的 x
+     *
+     * mermaid-js 的 edges.js 去掉首尾后保留 [midPoint]，然后加 intersect 交点。
+     * generateRoundedPath(radius=5) 在 midPoint 处生成圆角弯曲。
+     */
+    private fun computeEdgePoints(
+        startNode: Node,
+        endNode: Node,
+        isHorizontal: Boolean,
+        rankSep: Float,
+    ): List<Point> {
+        val sx = startNode.x
+        val sy = startNode.y
+        val ex = endNode.x
+        val ey = endNode.y
+
+        if (isHorizontal) {
+            val dy = kotlin.math.abs(ey - sy)
+            // 水平布局中间点
+            val midX = (sx + ex) / 2f
+            val midY = if (dy < 1f) sy else (sy + ey) / 2f
+            return listOf(
+                Point(sx, sy),
+                Point(midX, midY),
+                Point(ex, ey),
+            )
+        } else {
+            // 垂直布局（TB/BT）
+            // midY 在源节点底边和目标节点顶边的中间
+            val srcBottom = sy + startNode.height / 2f
+            val tgtTop = ey - endNode.height / 2f
+            val midY = (srcBottom + tgtTop) / 2f
+
+            val dx = kotlin.math.abs(ex - sx)
+            if (dx < 1f) {
+                // 同列：中间点在正中间（垂直直线经过一个中间控制点）
+                return listOf(
+                    Point(sx, sy),
+                    Point(sx, midY),
+                    Point(ex, ey),
+                )
+            }
+
+            // 不同列：虚拟节点 x 坐标靠近目标节点
+            // dagre 的 ordering + position 会让虚拟节点在目标节点附近
+            // 这样 intersect 计算出的交点更匹配 mermaid-js 的视觉效果
+            val midX = ex
+            return listOf(
+                Point(sx, sy),
+                Point(midX, midY),
+                Point(ex, ey),
+            )
         }
     }
 
