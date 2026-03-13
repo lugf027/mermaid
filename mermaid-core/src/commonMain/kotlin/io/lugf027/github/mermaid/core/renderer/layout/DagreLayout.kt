@@ -62,9 +62,6 @@ class DagreLayout : LayoutEngine {
         orderLayers(layers, adjacency, reverseAdj)
 
         // ─── 3. Coordinate Assignment ──────────────────────────
-        // 缓存邻接表供 assignCoordinates 使用
-        adjForLayout = adjacency
-        reverseAdjForLayout = reverseAdj
         assignCoordinates(layers, nodeMap, nodeSep, rankSep, isHorizontal)
 
         // 构建渲染结果
@@ -73,18 +70,18 @@ class DagreLayout : LayoutEngine {
             val startNode = nodeMap[edge.start]
             val endNode = nodeMap[edge.end]
             if (startNode != null && endNode != null) {
-                // 生成边的路径点（直线连接，匹配 dagre 对相邻层边的行为）
-                val points = computeEdgePoints(startNode, endNode, isHorizontal, rankSep)
-                val labelPos = if (edge.label.isNotEmpty()) {
-                    // 标签放在路径的中间点
-                    val mid = points[points.size / 2]
-                    if (points.size % 2 == 0 && points.size >= 2) {
-                        val a = points[points.size / 2 - 1]
-                        val b = points[points.size / 2]
-                        Point((a.x + b.x) / 2f, (a.y + b.y) / 2f)
-                    } else mid
-                } else null
-                edge.copy(points = points, labelPos = labelPos)
+                edge.copy(
+                    points = listOf(
+                        Point(startNode.x, startNode.y),
+                        Point(endNode.x, endNode.y),
+                    ),
+                    labelPos = if (edge.label.isNotEmpty()) {
+                        Point(
+                            (startNode.x + endNode.x) / 2f,
+                            (startNode.y + endNode.y) / 2f,
+                        )
+                    } else null,
+                )
             } else edge
         }
 
@@ -184,11 +181,7 @@ class DagreLayout : LayoutEngine {
 
     /**
      * 分配节点坐标。
-     * 三阶段：
-     * 1) 初始居中布局（每层节点居中对齐）
-     * 2) 向下扫描：将节点对齐到其父节点的中心
-     * 3) 向上扫描：将节点对齐到其子节点的中心
-     * 匹配 dagre/Sugiyama 的 Brandes-Köpf 坐标分配思路。
+     * 两阶段：1) 初始左对齐布局 2) 基于连接关系居中调整。
      */
     private fun assignCoordinates(
         layers: List<List<String>>,
@@ -197,161 +190,59 @@ class DagreLayout : LayoutEngine {
         rankSep: Float,
         isHorizontal: Boolean,
     ) {
-        // mermaid-js dagre 使用 marginx=8, marginy=8
-        val padding = 8f
+        val padding = 40f
 
-        // 帮助函数：获取节点在 pos 方向的尺寸
-        fun nodeSize(nodeId: String): Float {
-            val node = nodeMap[nodeId] ?: return 0f
-            return if (isHorizontal) node.height else node.width
-        }
+        // 阶段 1：计算每层的宽度/高度，分配 rank 方向坐标
+        data class LayerInfo(val totalSize: Float, val maxCross: Float)
+        val layerInfos = mutableListOf<LayerInfo>()
 
-        // 计算每层的 maxCross（rank 方向最大尺寸）
-        val layerMaxCross = layers.map { layer ->
-            layer.maxOfOrNull { id ->
-                val node = nodeMap[id] ?: return@maxOfOrNull 0f
-                if (isHorizontal) node.width else node.height
-            } ?: 0f
-        }
-
-        // 阶段 1：初始布局 — 每层节点从左对齐开始
-        // 先计算每层的总宽度
-        val layerWidths = layers.map { layer ->
-            var total = 0f
-            for (id in layer) total += nodeSize(id) + nodeSep
-            if (layer.isNotEmpty()) total -= nodeSep
-            total
-        }
-        val maxLayerWidth = layerWidths.maxOrNull() ?: 0f
-
-        // 记录每个节点的 pos（横向坐标）
-        val posMap = mutableMapOf<String, Float>()
-
-        // 初始化：每层居中排列
-        for ((layerIndex, layer) in layers.withIndex()) {
-            val centeringOffset = (maxLayerWidth - layerWidths[layerIndex]) / 2f
-            var offset = centeringOffset
-            for (nodeId in layer) {
-                val ns = nodeSize(nodeId)
-                posMap[nodeId] = offset + ns / 2f
-                offset += ns + nodeSep
-            }
-        }
-
-        // 阶段 2：向下扫描 — 子节点对齐到父节点中心（平均值）
-        for (i in 1 until layers.size) {
-            val layer = layers[i]
-            for (nodeId in layer) {
-                val predecessors = reverseAdjForLayout[nodeId] ?: continue
-                if (predecessors.isEmpty()) continue
-                val parentPositions = predecessors.mapNotNull { posMap[it] }
-                if (parentPositions.isNotEmpty()) {
-                    val avg = parentPositions.average().toFloat()
-                    posMap[nodeId] = avg
-                }
-            }
-            // 解决重叠：确保同层节点不重叠
-            resolveOverlaps(layer, posMap, nodeMap, nodeSep, isHorizontal)
-        }
-
-        // 阶段 3：向上扫描 — 微调，将父节点对齐到子节点中心（平均值）
-        for (i in layers.size - 2 downTo 0) {
-            val layer = layers[i]
-            for (nodeId in layer) {
-                val successors = adjForLayout[nodeId] ?: continue
-                if (successors.isEmpty()) continue
-                val childPositions = successors.mapNotNull { posMap[it] }
-                if (childPositions.isNotEmpty()) {
-                    val avg = childPositions.average().toFloat()
-                    posMap[nodeId] = avg
-                }
-            }
-            resolveOverlaps(layer, posMap, nodeMap, nodeSep, isHorizontal)
-        }
-
-        // 最终分配坐标到 Node 对象
-        var rankOffset = 0f
-        for ((layerIndex, layer) in layers.withIndex()) {
-            val maxCross = layerMaxCross[layerIndex]
+        for (layer in layers) {
+            var totalSize = 0f
+            var maxCross = 0f
             for (nodeId in layer) {
                 val node = nodeMap[nodeId] ?: continue
-                val p = posMap[nodeId] ?: continue
+                if (isHorizontal) {
+                    totalSize += node.height + nodeSep
+                    maxCross = max(maxCross, node.width)
+                } else {
+                    totalSize += node.width + nodeSep
+                    maxCross = max(maxCross, node.height)
+                }
+            }
+            if (layer.isNotEmpty()) totalSize -= nodeSep // 最后一个节点后不需要间距
+            layerInfos.add(LayerInfo(totalSize, maxCross))
+        }
+
+        // 计算所有层中最大的宽度（用于居中）
+        val maxLayerSize = layerInfos.maxOfOrNull { it.totalSize } ?: 0f
+
+        // 分配坐标
+        var rankOffset = 0f
+        for ((layerIndex, layer) in layers.withIndex()) {
+            val info = layerInfos[layerIndex]
+            // 居中偏移：让较窄的层在宽层中居中
+            val centeringOffset = (maxLayerSize - info.totalSize) / 2f
+            var posOffset = centeringOffset
+
+            for (nodeId in layer) {
+                val node = nodeMap[nodeId] ?: continue
 
                 if (isHorizontal) {
-                    node.x = rankOffset + padding + maxCross / 2f
-                    node.y = p + padding
+                    node.x = rankOffset + padding + info.maxCross / 2f
+                    node.y = posOffset + padding + node.height / 2f
+                    posOffset += node.height + nodeSep
                 } else {
-                    node.x = p + padding
-                    node.y = rankOffset + padding + maxCross / 2f
+                    node.x = posOffset + padding + node.width / 2f
+                    node.y = rankOffset + padding + info.maxCross / 2f
+                    posOffset += node.width + nodeSep
                 }
+
                 nodeMap[nodeId] = node
             }
-            rankOffset += maxCross + rankSep
+
+            rankOffset += info.maxCross + rankSep
         }
     }
-
-    /**
-     * 解决同层节点重叠，然后重新居中。
-     * 1. 按当前 pos 排序，确保相邻节点之间至少有 nodeSep 间距
-     * 2. 将整层节点平移回中心位置，避免单方向推导致偏移
-     */
-    private fun resolveOverlaps(
-        layer: List<String>,
-        posMap: MutableMap<String, Float>,
-        nodeMap: Map<String, Node>,
-        nodeSep: Float,
-        isHorizontal: Boolean,
-    ) {
-        if (layer.size <= 1) return
-
-        val sorted = layer.sortedBy { posMap[it] ?: 0f }
-
-        // 记录重叠解决前的中心
-        val oldCenter = sorted.mapNotNull { posMap[it] }.average().toFloat()
-
-        // 向右推解决重叠
-        for (i in 1 until sorted.size) {
-            val prev = sorted[i - 1]
-            val curr = sorted[i]
-            val prevNode = nodeMap[prev] ?: continue
-            val currNode = nodeMap[curr] ?: continue
-            val prevSize = if (isHorizontal) prevNode.height else prevNode.width
-            val currSize = if (isHorizontal) currNode.height else currNode.width
-            val prevPos = posMap[prev] ?: continue
-            val currPos = posMap[curr] ?: continue
-            val minDist = prevSize / 2f + currSize / 2f + nodeSep
-            if (currPos - prevPos < minDist) {
-                posMap[curr] = prevPos + minDist
-            }
-        }
-
-        // 重叠解决后，将整层平移回原来的中心
-        val newCenter = sorted.mapNotNull { posMap[it] }.average().toFloat()
-        val shift = oldCenter - newCenter
-        for (nodeId in sorted) {
-            posMap[nodeId] = (posMap[nodeId] ?: 0f) + shift
-        }
-    }
-
-    /**
-     * 计算边的路径点（匹配 dagre 行为）。
-     *
-     * dagre 对相邻层的边不插入虚拟节点，边的 points 只有
-     * src.center 和 tgt.center 两个点（直线连接）。
-     * 节点边界交点由 FlowRenderer 的 edgePointForShape 计算。
-     */
-    private fun computeEdgePoints(
-        startNode: Node,
-        endNode: Node,
-        isHorizontal: Boolean,
-        rankSep: Float,
-    ): List<Point> {
-        return listOf(Point(startNode.x, startNode.y), Point(endNode.x, endNode.y))
-    }
-
-    // 在 layout() 中缓存的邻接表引用，供 assignCoordinates 使用
-    private var adjForLayout: Map<String, List<String>> = emptyMap()
-    private var reverseAdjForLayout: Map<String, List<String>> = emptyMap()
 
     /**
      * 计算所有节点的总边界框。
