@@ -24,6 +24,10 @@ import io.lugf027.github.mermaid.core.diagram.requirement.RequirementDiagram
 import io.lugf027.github.mermaid.core.diagram.packet.PacketDiagram
 import io.lugf027.github.mermaid.core.diagram.kanban.KanbanDiagram
 import io.lugf027.github.mermaid.core.diagram.architecture.ArchitectureDiagram
+import io.lugf027.github.mermaid.core.diagram.ishikawa.IshikawaDiagram
+import io.lugf027.github.mermaid.core.diagram.venn.VennDiagram
+import io.lugf027.github.mermaid.core.diagram.treemap.TreemapDiagram
+import io.lugf027.github.mermaid.core.diagram.flowchartElk.FlowchartElkDiagram
 import io.lugf027.github.mermaid.core.util.Logger
 
 /**
@@ -184,7 +188,22 @@ object DiagramOrchestration {
         val archDef = ArchitectureDiagram.definition()
         DiagramRegistry.register(archDef)
 
-        // --- 第三批 3e（待实现）---
-        // ishikawa, venn, treemap, flowchart-elk
+        // --- 第三批 3e ---
+
+        // Ishikawa (鱼骨图)
+        val ishikawaDef = IshikawaDiagram.definition()
+        DiagramRegistry.register(ishikawaDef)
+
+        // Venn (韦恩图)
+        val vennDef = VennDiagram.definition()
+        DiagramRegistry.register(vennDef)
+
+        // Treemap (树形图)
+        val treemapDef = TreemapDiagram.definition()
+        DiagramRegistry.register(treemapDef)
+
+        // Flowchart-ELK (复用 Flowchart)
+        val flowchartElkDef = FlowchartElkDiagram.definition()
+        DiagramRegistry.register(flowchartElkDef)
     }
 }
