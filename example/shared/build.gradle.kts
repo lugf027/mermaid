@@ -34,7 +34,6 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(project(":mermaid-core"))
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(libs.compose.material3)

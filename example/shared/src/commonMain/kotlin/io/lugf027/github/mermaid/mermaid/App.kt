@@ -1,65 +1,47 @@
 package io.lugf027.github.mermaid.mermaid
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.safeContentPadding
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import io.lugf027.github.mermaid.core.core.MermaidKMP
+import org.jetbrains.compose.resources.painterResource
 
-/**
- * Mermaid-KMP Demo App 主入口。
- * 底部导航栏切换 Editor / Gallery 两个屏幕。
- */
+import mermaid.example.shared.generated.resources.Res
+import mermaid.example.shared.generated.resources.compose_multiplatform
+
 @Composable
 fun App() {
-    // 确保 MermaidKMP 已初始化
-    LaunchedEffect(Unit) {
-        MermaidKMP.initialize()
-    }
-
-    MaterialTheme(
-        colorScheme = dynamicColorScheme(),
-    ) {
-        var selectedTab by remember { mutableStateOf(0) }
-        var editorText by remember { mutableStateOf(SampleData.defaultSample.text) }
-
-        Scaffold(
-            bottomBar = {
-                NavigationBar {
-                    NavigationBarItem(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        icon = {},
-                        label = { Text("Editor") },
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        icon = {},
-                        label = { Text("Gallery") },
-                    )
-                }
+    MaterialTheme {
+        var showContent by remember { mutableStateOf(false) }
+        Column(
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.primaryContainer)
+                .safeContentPadding()
+                .fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Button(onClick = { showContent = !showContent }) {
+                Text("Click me!")
             }
-        ) { padding ->
-            Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-                when (selectedTab) {
-                    0 -> EditorScreen(initialText = editorText)
-                    1 -> GalleryScreen(
-                        onSampleSelected = { sample ->
-                            editorText = sample.text
-                            selectedTab = 0
-                        }
-                    )
+            AnimatedVisibility(showContent) {
+                val greeting = remember { Greeting().greet() }
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Image(painterResource(Res.drawable.compose_multiplatform), null)
+                    Text("Compose: $greeting")
                 }
             }
         }
     }
-}
-
-/**
- * 生成默认 Material3 配色方案。
- */
-@Composable
-private fun dynamicColorScheme(): ColorScheme {
-    return lightColorScheme()
 }
