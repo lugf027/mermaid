@@ -1,0 +1,12 @@
+architecture-beta
+group frontend[Frontend]
+group backend[Backend]
+
+service web(cloud)[Web App] in frontend
+service mobile(cloud)[Mobile App] in frontend
+service api(server)[API Server] in backend
+service db(database)[Database] in backend
+
+web:B --> T:api
+mobile:B --> T:api
+api:R --> L:db

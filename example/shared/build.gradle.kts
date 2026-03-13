@@ -42,6 +42,10 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
+            implementation(projects.mermaidCore)
+            // Coil 3 - 第三方 SVG 渲染
+            implementation(libs.coil3.compose)
+            implementation(libs.coil3.svg)
         }
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)

@@ -1,0 +1,9 @@
+sequenceDiagram
+    autonumber
+    participant User
+    participant Server
+    participant DB
+    User->>Server: Login request
+    Server->>DB: Query user
+    DB-->>Server: User data
+    Server-->>User: Login success

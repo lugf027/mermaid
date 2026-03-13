@@ -1,0 +1,9 @@
+%%{init: {"flowchart": {"defaultRenderer": "elk"}} }%%
+flowchart TD
+    A[Input] --> B[Validate]
+    B --> C{Valid?}
+    C -->|Yes| D[Process]
+    C -->|No| E[Error]
+    D --> F[Save]
+    E --> B
+    F --> G[Output]

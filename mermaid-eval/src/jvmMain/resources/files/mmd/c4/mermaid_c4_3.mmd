@@ -1,0 +1,8 @@
+C4Component
+    Container_Boundary(api, "API Application") {
+        Component(authCtrl, "Auth Controller", "Spring MVC", "Handles authentication")
+        Component(userCtrl, "User Controller", "Spring MVC", "Manages users")
+        ComponentDb(userRepo, "User Repository", "Spring Data", "Stores user data")
+    }
+    Rel(authCtrl, userCtrl, "Uses")
+    Rel(userCtrl, userRepo, "Reads/Writes")

@@ -1,0 +1,18 @@
+erDiagram
+    STUDENT {
+        int id PK
+        string name
+        string email
+    }
+    COURSE {
+        int id PK
+        string title
+        int credits
+    }
+    ENROLLMENT {
+        int studentId FK
+        int courseId FK
+        string grade
+    }
+    STUDENT ||--o{ ENROLLMENT : enrolls
+    COURSE ||--o{ ENROLLMENT : has

@@ -1,0 +1,17 @@
+{
+  "name": "mermaid-kmp-tools",
+  "version": "1.0.0",
+  "description": "mermaid-kmp 开发辅助工具集 — SVG 对比、字体测量、dagre 验证、形状采集",
+  "type": "module",
+  "scripts": {
+    "measure-fonts": "node measure_font_widths.js",
+    "measure-shapes": "node measure_shapes.js --example all-shapes",
+    "test-dagre": "node test_dagre_layout.mjs --list",
+    "compare-svg": "python3 compare_svg.py --help",
+    "decode-data": "python3 decode_svg_data.py --help"
+  },
+  "dependencies": {
+    "dagre-d3-es": "^7.0.14",
+    "puppeteer": "^23.0.0"
+  }
+}

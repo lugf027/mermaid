@@ -1,0 +1,6 @@
+C4Context
+    Person(customer, "Customer", "A customer of the bank")
+    System(bankingSystem, "Banking System", "Allows customers to manage accounts")
+    System_Ext(mailSystem, "E-mail System", "Microsoft Exchange")
+    Rel(customer, bankingSystem, "Uses")
+    Rel(bankingSystem, mailSystem, "Sends emails", "SMTP")

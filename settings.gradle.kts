@@ -32,6 +32,9 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
+include(":mermaid-core")
+include(":mermaid-cli")
+include(":mermaid-eval")
 include(":example:shared")
 include(":example:androidApp")
 include(":example:desktopApp")

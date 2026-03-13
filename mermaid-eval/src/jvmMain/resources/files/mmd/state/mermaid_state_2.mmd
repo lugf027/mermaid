@@ -1,0 +1,9 @@
+stateDiagram-v2
+    [*] --> Still
+    Still --> Moving
+    Moving --> Still
+    Moving --> Crash
+    Crash --> [*]
+    Still : No motion detected
+    Moving : Object is in motion
+    Crash : System failure

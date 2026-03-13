@@ -1,0 +1,17 @@
+requirementDiagram
+
+    requirement test_req {
+    id: 1
+    text: the test text.
+    risk: high
+    verifymethod: test
+    }
+
+    interfaceRequirement test_req2 {
+    id: 1.1
+    text: the second test text.
+    risk: low
+    verifymethod: analysis
+    }
+
+    test_req - derives -> test_req2

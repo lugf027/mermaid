@@ -1,0 +1,7 @@
+architecture-beta
+service client(cloud)[Client]
+service server(server)[Server]
+service db(database)[Database]
+
+client:R <--> L:server
+server:R --> L:db

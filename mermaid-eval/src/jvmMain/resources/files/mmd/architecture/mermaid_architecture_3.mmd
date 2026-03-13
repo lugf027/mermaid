@@ -1,0 +1,9 @@
+architecture-beta
+service svc1(server)[Service A]
+service svc2(server)[Service B]
+junction jn
+service svc3(server)[Service C]
+
+svc1:R --> L:jn
+svc2:R --> L:jn
+jn:R --> L:svc3

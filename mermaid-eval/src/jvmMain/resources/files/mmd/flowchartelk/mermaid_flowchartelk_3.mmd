@@ -1,0 +1,9 @@
+%%{init: {"flowchart": {"defaultRenderer": "elk"}} }%%
+flowchart LR
+    subgraph Frontend
+        A[React] --> B[Redux]
+    end
+    subgraph Backend
+        C[API] --> D[DB]
+    end
+    B --> C

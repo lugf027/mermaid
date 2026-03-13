@@ -1,0 +1,10 @@
+C4Deployment
+    Deployment_Node(cloud, "AWS", "Cloud") {
+        Deployment_Node(web, "Web Server", "EC2") {
+            Container(webApp, "Web App", "Java", "Serves content")
+        }
+        Deployment_Node(db_node, "DB Server", "RDS") {
+            ContainerDb(db, "Database", "PostgreSQL", "Data storage")
+        }
+    }
+    Rel(webApp, db, "Reads/Writes", "JDBC")
