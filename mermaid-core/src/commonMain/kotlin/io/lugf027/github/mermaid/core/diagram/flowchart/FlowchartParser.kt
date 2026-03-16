@@ -23,6 +23,17 @@ class FlowchartParser : DiagramParser {
     private var text = ""
     private var lines = listOf<String>()
 
+    /**
+     * 子图栈 — 追踪当前嵌套的 subgraph...end 块
+     *
+     * 对标 mermaid-js flow.jison 的递归 document 规则：
+     * JISON 语法天然形成栈（内层子图先完成解析、先注册），
+     * 手写解析器需要显式维护栈来模拟这个行为。
+     *
+     * 每个元素是 (subgraphId, 收集到的节点ID列表)
+     */
+    private val subGraphStack = mutableListOf<Pair<String, MutableList<String>>>()
+
     override fun parse(text: String, db: DiagramDB) {
         val flowDb = db as FlowchartDb
         this.text = text.trim()
@@ -30,6 +41,9 @@ class FlowchartParser : DiagramParser {
         this.pos = 0
 
         if (lines.isEmpty()) return
+
+        // 清除子图栈
+        subGraphStack.clear()
 
         // 解析第一行：graph/flowchart + 方向
         parseHeader(flowDb)
@@ -68,7 +82,19 @@ class FlowchartParser : DiagramParser {
         // 跳过 subgraph/end/classDef/class/click/style/linkStyle
         when {
             trimmed.startsWith("subgraph ") -> parseSubgraph(trimmed, db)
-            trimmed == "end" -> { /* 子图结束 */ }
+            trimmed == "end" -> {
+                // 子图结束 — 弹出栈顶，将收集到的节点传给 db
+                if (subGraphStack.isNotEmpty()) {
+                    val (sgId, nodeIds) = subGraphStack.removeAt(subGraphStack.size - 1)
+                    // 获取已注册的子图并更新其节点列表
+                    db.updateSubGraphNodes(sgId, nodeIds)
+                    // 将子图 ID 注册到外层子图（子图作为外层子图的一个"节点"）
+                    // 对标 mermaid-js：JISON 返回子图 id，被外层 document 规则收集
+                    if (subGraphStack.isNotEmpty()) {
+                        subGraphStack.last().second.add(sgId)
+                    }
+                }
+            }
             trimmed.startsWith("classDef ") -> parseClassDef(trimmed, db)
             trimmed.startsWith("class ") -> parseClassAssignment(trimmed, db)
             trimmed.startsWith("click ") -> { /* 忽略点击事件 */ }
@@ -213,6 +239,8 @@ class FlowchartParser : DiagramParser {
                 val id = match.groupValues[1]
                 val label = match.groupValues[2]
                 db.addVertex(id, label, shape)
+                // 注册节点到当前活跃子图
+                registerNodeToCurrentSubgraph(id)
                 return
             }
         }
@@ -221,6 +249,23 @@ class FlowchartParser : DiagramParser {
         val idMatch = Regex("""^(\w+)$""").find(trimmed)
         if (idMatch != null) {
             db.addVertex(idMatch.groupValues[1])
+            // 注册节点到当前活跃子图
+            registerNodeToCurrentSubgraph(idMatch.groupValues[1])
+        }
+    }
+
+    /**
+     * 将节点 ID 注册到当前活跃的子图栈顶
+     *
+     * 对标 mermaid-js：JISON 的 document 规则自动收集语句中的节点 ID。
+     * 在手写解析器中，需要显式在解析到节点时将其加入栈顶子图的节点列表。
+     */
+    private fun registerNodeToCurrentSubgraph(nodeId: String) {
+        if (subGraphStack.isNotEmpty()) {
+            val nodeList = subGraphStack.last().second
+            if (nodeId !in nodeList) {
+                nodeList.add(nodeId)
+            }
         }
     }
 
@@ -240,13 +285,16 @@ class FlowchartParser : DiagramParser {
         }
     }
 
-    /** 解析子图 */
+    /** 解析子图 — 对标 mermaid-js flow.jison subgraph 规则 */
     private fun parseSubgraph(line: String, db: FlowchartDb) {
         val match = Regex("""^subgraph\s+(\w+)(?:\s*\[([^\]]*)\])?""").find(line)
         if (match != null) {
             val id = match.groupValues[1]
             val title = match.groupValues[2].ifEmpty { id }
+            // 先注册空子图到 DB（节点列表后面在 end 时更新）
             db.addSubGraph(id, title, emptyList())
+            // 压栈：开始收集这个子图内的节点
+            subGraphStack.add(Pair(id, mutableListOf()))
         }
     }
 

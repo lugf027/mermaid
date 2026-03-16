@@ -3,15 +3,14 @@ package io.lugf027.github.mermaid.core.diagram.flowchartElk
 import io.lugf027.github.mermaid.core.diagram.DiagramDefinition
 import io.lugf027.github.mermaid.core.diagram.flowchart.FlowchartDb
 import io.lugf027.github.mermaid.core.diagram.flowchart.FlowchartParser
-import io.lugf027.github.mermaid.core.diagram.flowchart.FlowchartRenderer
 
 /**
  * Flowchart-ELK DiagramDefinition 组装
  *
  * 在 mermaid-js 中，flowchart-elk 使用 ELK 布局引擎替代 Dagre，
- * 但共享相同的解析器和渲染逻辑。在 KMP 中我们复用 Flowchart 的
- * 完整实现（Db/Parser/Renderer），仅作为独立的图表类型注册，
- * 这样未来可以在布局阶段切换到 ELK 引擎。
+ * 但共享相同的解析器和数据库。在 KMP 中我们复用 Flowchart 的
+ * Parser 和 Db，但使用 FlowchartElkRenderer（内部调用 ElkLayout）
+ * 进行布局和渲染，实现与 mermaid-js ELK 渲染器像素级一致的输出。
  */
 object FlowchartElkDiagram {
 
@@ -26,7 +25,7 @@ object FlowchartElkDiagram {
         },
         dbFactory = { FlowchartDb() },
         parser = FlowchartParser(),
-        renderer = FlowchartRenderer(),
+        renderer = FlowchartElkRenderer(),
         styles = { tv ->
             buildString {
                 appendLine(".flowchart-elk .node rect { fill: ${tv.mainBkg}; stroke: ${tv.nodeBorder}; }")

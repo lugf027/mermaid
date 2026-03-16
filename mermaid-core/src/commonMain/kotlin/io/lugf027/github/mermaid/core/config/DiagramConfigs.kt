@@ -398,3 +398,26 @@ data class VennDiagramConfig(
     val padding: Int? = 8,
     val useDebugLayout: Boolean? = false,
 ) : BaseDiagramConfig
+
+/**
+ * ELK 布局引擎配置 - 对标 mermaid-js config.schema.yaml elk 配置
+ *
+ * 控制 ELK (Eclipse Layout Kernel) 布局算法的行为参数。
+ * 仅当 layout 设为 "elk" 或使用 flowchart-elk 图表类型时生效。
+ */
+@Serializable
+data class ElkConfig(
+    /** 是否合并平行边 - 对标 elk.layered.mergeEdges */
+    val mergeEdges: Boolean? = false,
+    /** 节点放置策略 - 对标 nodePlacement.strategy
+     *  可选值: SIMPLE, NETWORK_SIMPLEX, LINEAR_SEGMENTS, BRANDES_KOEPF */
+    val nodePlacementStrategy: String? = "BRANDES_KOEPF",
+    /** 循环打破策略 - 对标 elk.layered.cycleBreaking.strategy
+     *  可选值: GREEDY, DEPTH_FIRST, MODEL_ORDER, GREEDY_MODEL_ORDER */
+    val cycleBreakingStrategy: String? = "GREEDY_MODEL_ORDER",
+    /** 是否强制保持模型中的节点顺序 - 对标 elk.layered.crossingMinimization.forceNodeModelOrder */
+    val forceNodeModelOrder: Boolean? = false,
+    /** 保持模型顺序的策略 - 对标 elk.layered.considerModelOrder.strategy
+     *  可选值: NONE, NODES_AND_EDGES, PREFER_EDGES, PREFER_NODES */
+    val considerModelOrder: String? = "NODES_AND_EDGES",
+)

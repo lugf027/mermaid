@@ -117,6 +117,26 @@ class FlowchartDb : DiagramDB {
         _subGraphs.add(SubGraph(id = id, title = title, nodes = nodes.toMutableList(), dir = dir))
     }
 
+    /**
+     * 更新子图的节点列表 — 在 subgraph...end 块解析完成后由解析器调用
+     *
+     * 对标 mermaid-js flowDb.ts addSubGraph() 中的 makeUniq() 逻辑：
+     * 如果一个节点已经属于某个更内层的子图，则不会被添加到外层子图。
+     * 这保证了每个节点只属于最内层的子图。
+     */
+    fun updateSubGraphNodes(sgId: String, nodeIds: List<String>) {
+        val sg = _subGraphs.find { it.id == sgId } ?: return
+        // makeUniq: 排除已经存在于其他（更内层）子图中的节点
+        val existingNodes = mutableSetOf<String>()
+        for (otherSg in _subGraphs) {
+            if (otherSg.id != sgId) {
+                existingNodes.addAll(otherSg.nodes)
+            }
+        }
+        val uniqueNodes = nodeIds.filter { it !in existingNodes && it.isNotEmpty() }
+        sg.nodes = uniqueNodes.toMutableList()
+    }
+
     /** 添加样式类 */
     fun addClass(id: String, styles: List<String>) {
         _classDefs[id] = DiagramStyleClassDef(id = id, styles = styles)
@@ -124,10 +144,22 @@ class FlowchartDb : DiagramDB {
 
     /**
      * 获取布局数据 - 对标 flowDb.ts 的 getData()
+     *
+     * 将子图作为 isGroup=true 的 LayoutNode 包含在内，
+     * 并为子图内的节点设置 parentId，使 ELK 布局能正确处理层次图结构。
      */
     fun getData(config: MermaidConfig): LayoutData {
         val flowConfig = config.flowchart
 
+        // 构建节点 → 子图 的映射：nodeId → subgraphId
+        val nodeParentMap = mutableMapOf<String, String>()
+        for (sg in _subGraphs) {
+            for (nodeId in sg.nodes) {
+                nodeParentMap[nodeId] = sg.id
+            }
+        }
+
+        // 1. 普通节点
         val layoutNodes = _vertices.entries.map { (id, vertex) ->
             LayoutNode(
                 id = id,
@@ -139,8 +171,23 @@ class FlowchartDb : DiagramDB {
                 linkTarget = vertex.linkTarget,
                 tooltip = vertex.tooltip,
                 domId = vertex.domId,
-                padding = (flowConfig?.padding ?: 15).toDouble()
+                padding = (flowConfig?.padding ?: 15).toDouble(),
+                parentId = nodeParentMap[id],
             )
+        }.toMutableList()
+
+        // 2. 子图作为 isGroup 节点
+        // 子图也可以嵌套在其他子图中（对标 mermaid-js getData 中的 parentDB.get(subGraph.id)）
+        for (sg in _subGraphs) {
+            layoutNodes.add(LayoutNode(
+                id = sg.id,
+                label = sg.title,
+                isGroup = true,
+                dir = sg.dir,
+                children = sg.nodes.toList(),
+                padding = (flowConfig?.padding ?: 15).toDouble(),
+                parentId = nodeParentMap[sg.id],  // 子图嵌套关系
+            ))
         }
 
         val layoutEdges = _edges.mapIndexed { idx, edge ->

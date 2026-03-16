@@ -44,6 +44,27 @@ object Markers {
         addBarbEnd(parent, prefix, diagramType)
     }
 
+    /**
+     * 仅添加基础标记 (point, circle, cross) - 对标 mermaid-js flowchart 的 markers 列表
+     *
+     * mermaid-js 的 flowchart 只注册 3 种 marker (各有 Start/End = 6 个 SVG 元素)：
+     * data4Layout.markers = ['point', 'circle', 'cross']
+     *
+     * @param parent 父元素
+     * @param diagramId SVG id
+     * @param diagramType 图表类型标识
+     */
+    fun addBasicMarkers(parent: SvgElement, diagramId: String, diagramType: String = "flowchart-v2") {
+        val prefix = "${diagramId}_${diagramType}"
+
+        addPointEnd(parent, prefix, diagramType)
+        addPointStart(parent, prefix, diagramType)
+        addCircleEnd(parent, prefix, diagramType)
+        addCircleStart(parent, prefix, diagramType)
+        addCrossEnd(parent, prefix, diagramType)
+        addCrossStart(parent, prefix, diagramType)
+    }
+
     /** pointEnd - 标准箭头（末端） */
     private fun addPointEnd(parent: SvgElement, prefix: String, diagramType: String) {
         val marker = SvgMarker()

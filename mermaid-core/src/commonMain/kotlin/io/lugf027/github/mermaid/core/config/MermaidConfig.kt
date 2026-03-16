@@ -76,6 +76,8 @@ data class MermaidConfig(
     val block: BlockDiagramConfig? = null,
     val radar: RadarDiagramConfig? = null,
     val venn: VennDiagramConfig? = null,
+    /** ELK 布局引擎配置 - 仅当 layout="elk" 或使用 flowchart-elk 时生效 */
+    val elk: ElkConfig? = null,
 ) {
     companion object {
         /** 默认配置 */
@@ -118,6 +120,7 @@ data class MermaidConfig(
             block = BlockDiagramConfig(),
             radar = RadarDiagramConfig(),
             venn = VennDiagramConfig(),
+            elk = ElkConfig(),
         )
     }
 }

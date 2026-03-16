@@ -23,7 +23,7 @@ object EdgeRenderer {
      *       style=";" data-edge="true" data-et="edge" data-id="L_A_B_0"
      *       data-points="..." marker-end="url(#...)"/>
      */
-    fun renderPath(edge: LayoutEdge, diagramId: String, themeVariables: ThemeVariables): SvgElement {
+    fun renderPath(edge: LayoutEdge, diagramId: String, themeVariables: ThemeVariables, diagramType: String = "flowchart-v2"): SvgElement {
         val pathData = buildPathData(edge)
         val edgeId = buildEdgeId(edge)
 
@@ -65,11 +65,11 @@ object EdgeRenderer {
         // "none" 或 null -> 不设置 marker
         val endMarkerType = arrowTypeToMarkerType(edge.arrowTypeEnd)
         if (endMarkerType != null) {
-            path.attr("marker-end", "url(#${diagramId}_flowchart-v2-${endMarkerType}End)")
+            path.attr("marker-end", "url(#${diagramId}_${diagramType}-${endMarkerType}End)")
         }
         val startMarkerType = arrowTypeToMarkerType(edge.arrowTypeStart)
         if (startMarkerType != null) {
-            path.attr("marker-start", "url(#${diagramId}_flowchart-v2-${startMarkerType}Start)")
+            path.attr("marker-start", "url(#${diagramId}_${diagramType}-${startMarkerType}Start)")
         }
 
         return path

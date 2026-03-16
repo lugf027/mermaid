@@ -49,7 +49,17 @@ object DetectorRegistry {
 
         // flowchart-elk (最优先，检测 flowchart-elk 关键字或 elk renderer 配置)
         register("flowchart-elk") { text ->
-            Regex("^\\s*flowchart-elk").containsMatchIn(text)
+            // 方式 1: flowchart-elk 关键字
+            if (Regex("^\\s*flowchart-elk").containsMatchIn(text)) return@register true
+            // 方式 2: 配置中 defaultRenderer 为 elk (来自 %%{init...}%% 指令)
+            // 注意：需要实时获取配置（parse 阶段指令已被 ConfigManager 应用）
+            val currentConfig = ConfigManager.getConfig()
+            val renderer = currentConfig.flowchart?.defaultRenderer
+            if (renderer == "elk") {
+                Regex("^\\s*(flowchart|graph)").containsMatchIn(text)
+            } else {
+                false
+            }
         }
 
         // flowchart-v2 (现代流程图，默认渲染器)
