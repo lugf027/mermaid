@@ -16,7 +16,7 @@
 [![Platforms](https://img.shields.io/badge/Platforms-JVM%20|%20Android%20|%20iOS%20|%20JS%20|%20WasmJS-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> **⚠️ Active Development:** This project is under active iterative development. Full pixel-level fidelity for all diagram types is targeted for completion by **March 2026**. See [Diagram Support Status](#supported-diagram-types) for current progress.
+> **⚠️ Active Development:** This project is under active iterative development. Full pixel-level fidelity for all diagram types is targeted for completion by **April 2026**. See [Diagram Support Status](#supported-diagram-types) for current progress.
 
 ## Overview
 
